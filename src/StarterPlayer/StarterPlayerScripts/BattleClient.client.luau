@@ -165,9 +165,32 @@ local MOVE_SPEED = 70 -- studs/sec
 local FAST_MULTIPLIER = 3.5
 local LOOK_SENSITIVITY = 0.005
 
+-- Where to point the camera on startup: the battlefield, not empty space.
+local function initialFocus()
+	local a = Workspace:FindFirstChild("TeamASpawn")
+	local b = Workspace:FindFirstChild("TeamBSpawn")
+	if a and b then
+		return (a.Position + b.Position) / 2
+	elseif a then
+		return a.Position
+	end
+	local ground = Workspace:FindFirstChild("Battlefield") or Workspace:FindFirstChild("Baseplate")
+	if ground then
+		return ground.Position
+	end
+	return Vector3.zero
+end
+
 -- Camera state, tracked as a position + yaw/pitch we rebuild each frame.
-local camPos = Vector3.new(0, 120, 220)
-local yaw, pitch = 0, math.rad(-28)
+local focus = initialFocus()
+local camPos = focus + Vector3.new(0, 110, 200)
+local yaw, pitch
+do
+	local dir = focus - camPos
+	dir = dir.Magnitude > 0 and dir.Unit or Vector3.new(0, 0, -1)
+	pitch = math.asin(math.clamp(dir.Y, -1, 1))
+	yaw = math.atan2(-dir.X, -dir.Z)
+end
 local held = {} -- keycode name -> true
 local looking = false
 local followMode = false
