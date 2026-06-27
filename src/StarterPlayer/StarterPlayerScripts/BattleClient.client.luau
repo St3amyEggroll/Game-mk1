@@ -22,6 +22,24 @@ local signals = ReplicatedStorage:WaitForChild("BattleSignals")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- If you see this in the Output window, the client script IS synced & running.
+print("[BattleClient] spectator camera active")
+
+-- Freeze the avatar so flying the camera doesn't also walk the character
+-- around the viewing platform.
+local function freezeCharacter(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 5)
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+		humanoid.JumpHeight = 0
+	end
+end
+if player.Character then
+	freezeCharacter(player.Character)
+end
+player.CharacterAdded:Connect(freezeCharacter)
+
 -- ---------------------------------------------------------------- UI build ---
 
 local screen = Instance.new("ScreenGui")

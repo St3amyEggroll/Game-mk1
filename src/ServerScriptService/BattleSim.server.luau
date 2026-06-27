@@ -13,25 +13,86 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local PhysicsService = game:GetService("PhysicsService")
 
--- Spectator sim: no player avatars on the battlefield (they'd fall into the
--- void / shove units / confuse pathfinding). The client runs a scripted camera.
-Players.CharacterAutoLoads = false
+-- ---------------------------------------------------------------------------
+-- Spectator setup. We spawn the viewer on a platform OVERLOOKING the battle so
+-- they always see the action (never fall into the void). This is server-only,
+-- so it works even if the client freecam script hasn't synced. The freecam,
+-- when present, just takes over the camera for flying.
+-- ---------------------------------------------------------------------------
 
-local function makeSpectator(plr)
-	-- Kill any character that already loaded, and any that sneaks in later.
-	if plr.Character then
-		plr.Character:Destroy()
+-- Players don't collide with battle units (and units don't path into them).
+pcall(function() PhysicsService:RegisterCollisionGroup("BattleUnits") end)
+pcall(function() PhysicsService:RegisterCollisionGroup("Spectator") end)
+pcall(function() PhysicsService:CollisionGroupSetCollidable("Spectator", "BattleUnits", false) end)
+
+-- A point off to the side of the battle, raised up, looking at the middle.
+local function viewpoint()
+	local a = Workspace:FindFirstChild("TeamASpawn")
+	local b = Workspace:FindFirstChild("TeamBSpawn")
+	local center, axis
+	if a and b then
+		center = (a.Position + b.Position) / 2
+		axis = b.Position - a.Position
+	else
+		local ground = Workspace:FindFirstChild("Battlefield") or Workspace:FindFirstChild("Baseplate")
+		center = ground and ground.Position or Vector3.zero
+		axis = Vector3.new(1, 0, 0)
 	end
-	plr.CharacterAdded:Connect(function(character)
-		character:Destroy()
+	axis = axis.Magnitude > 0 and axis.Unit or Vector3.new(1, 0, 0)
+	local side = axis:Cross(Vector3.new(0, 1, 0))
+	side = side.Magnitude > 0 and side.Unit or Vector3.new(0, 0, 1)
+	return center + side * 130 + Vector3.new(0, 8, 0), center
+end
+
+-- Make/repair a SpawnLocation on that viewing platform.
+local function ensureSpawnPad()
+	local standPos, center = viewpoint()
+	local pad = Workspace:FindFirstChild("SpectatorPad")
+	if not pad then
+		pad = Instance.new("SpawnLocation")
+		pad.Name = "SpectatorPad"
+		pad.Size = Vector3.new(24, 1, 24)
+		pad.Anchored = true
+		pad.Neutral = true
+		pad.Duration = 0 -- no forcefield
+		pad.Color = Color3.fromRGB(55, 58, 68)
+		pad.Parent = Workspace
+	end
+	pad.CFrame = CFrame.lookAt(standPos, Vector3.new(center.X, standPos.Y, center.Z))
+end
+
+-- Keep the viewer from interfering with the simulation.
+local function onCharacter(character)
+	for _, part in character:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CollisionGroup = "Spectator"
+			part.CanQuery = false -- pathfinding rays ignore the player
+		end
+	end
+	character.DescendantAdded:Connect(function(part)
+		if part:IsA("BasePart") then
+			part.CollisionGroup = "Spectator"
+			part.CanQuery = false
+		end
 	end)
 end
 
-for _, plr in Players:GetPlayers() do
-	makeSpectator(plr)
+local function onPlayer(plr)
+	plr.CharacterAdded:Connect(onCharacter)
+	if plr.Character then
+		onCharacter(plr.Character)
+	end
 end
-Players.PlayerAdded:Connect(makeSpectator)
+
+ensureSpawnPad()
+Players.CharacterAutoLoads = true
+for _, plr in Players:GetPlayers() do
+	onPlayer(plr)
+end
+Players.PlayerAdded:Connect(onPlayer)
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Modules = ServerScriptService:WaitForChild("Modules")
