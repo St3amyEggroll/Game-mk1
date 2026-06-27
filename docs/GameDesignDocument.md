@@ -56,10 +56,21 @@ Two optimization habits are baked in from day one:
 | 1 | Spawn + march | ✅ done |
 | 2 | Melee combat + last-team-standing | ✅ done |
 | 2.5 | Leader + smarter AI (orders, formation, focus fire, morale) | ✅ done |
+| 2.7 | Pathfinding, flanking + guard squads, HUD, death FX | ✅ done |
 | 3 | Ranged units (projectiles / line-of-sight) | ⬜ next |
 | 4 | Optimize to 100v100 (lightweight units, spatial targeting) | ⬜ |
-| 5 | Polish (health bars, death FX, stats UI) | ⬜ |
+| 5 | More polish (sound, kill streaks, win-screen stats) | ⬜ |
 | 6 | Player commander takes over the Leader role | ⬜ |
+
+### Roles & tactics (2.7)
+- **Leader** hangs back and directs; only self-defends.
+- **Guards** screen the Leader — the counter to focus-fire assassination.
+- **Flankers** swing wide to the FlankPoint and hit from the side.
+- **Main** line advances in formation, then engages.
+- **NavigationSystem** only pathfinds when an obstacle is actually in the
+  line of sight to the goal (open field = one cheap ray per unit).
+- **Client HUD**: action camera, survivor scoreboard, kill feed, win banner.
+- **Death FX**: dust puff, ragdoll, fade.
 
 ## Known shortcuts to revisit
 

@@ -12,6 +12,7 @@ local PhysicsService = game:GetService("PhysicsService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
+local HealthBar = require(script.Parent.HealthBar)
 
 local SpawnSystem = {}
 
@@ -74,16 +75,31 @@ local function formationOffset(slotIndex)
 	return Vector3.new((col - (cols - 1) / 2) * spacing, 0, row * spacing)
 end
 
--- Expand the composition (plus a Leader) into a flat list of soldiers to spawn.
+-- Expand the composition (plus a Leader) into a flat list of soldiers to spawn,
+-- and assign roles: some Guards screen the Leader, some Flankers swing wide,
+-- the rest are Main line.
 local function buildRoster()
 	local roster = {}
 	if Config.Leader.Enabled then
-		table.insert(roster, { Type = "Melee", IsLeader = true })
+		table.insert(roster, { Type = "Melee", IsLeader = true, Role = "Leader" })
 	end
+
+	local soldiers = {}
 	for _, group in Config.Composition do
 		for _ = 1, group.Count do
-			table.insert(roster, { Type = group.Type, IsLeader = false })
+			table.insert(soldiers, { Type = group.Type, IsLeader = false, Role = "Main" })
 		end
+	end
+
+	local guards = Config.Leader.Enabled and Config.Leader.GuardSquadSize or 0
+	local flankers = Config.Command.FlankSquadSize
+	for index, soldier in soldiers do
+		if index <= guards then
+			soldier.Role = "Guard"
+		elseif index <= guards + flankers then
+			soldier.Role = "Flank"
+		end
+		table.insert(roster, soldier)
 	end
 	return roster
 end
@@ -128,9 +144,11 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 		humanoid.WalkSpeed = stats.WalkSpeed
 
 		model.Parent = unitsFolder
+		HealthBar.Attach(model, humanoid, slot.IsLeader)
 
 		local unit = UnitManager.Register(model, teamKey, slot.Type)
 		unit.IsLeader = slot.IsLeader
+		unit.Role = slot.Role
 		unit.FormationOffset = offset
 	end
 end

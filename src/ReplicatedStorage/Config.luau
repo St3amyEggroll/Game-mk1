@@ -59,6 +59,12 @@ Config.Leader = {
 	Scale = 1.5, -- visually bigger so you can spot it
 	GlowColor = Color3.fromRGB(255, 230, 120), -- highlight tint
 	Standoff = 20, -- studs the Leader hangs back behind its army's center
+
+	-- Bodyguards screen the Leader. THIS is the "protect the leader" strategy:
+	-- assassins (focus fire targets the enemy leader) must punch through guards.
+	GuardSquadSize = 3, -- soldiers assigned to guard their Leader
+	GuardScreenDistance = 9, -- how far in front of the Leader they hold
+	GuardEngageRange = 28, -- guards attack any enemy this close to the Leader
 }
 
 -- Army-level behavior the Leader coordinates.
@@ -81,10 +87,34 @@ Config.Command = {
 	-- How hard units avoid piling on top of each other while moving.
 	SeparationRadius = 4,
 
-	-- Obstacle avoidance: units cast a short ray ahead and steer around walls
-	-- and cover. This is what makes them ready for the obstacles you'll add.
-	ObstacleLookAhead = 10, -- studs to look ahead for an obstacle
-	ObstacleAvoidStrength = 8, -- how hard to veer around it
+	-- Flanking: a squad peels off and swings wide to hit the enemy from the
+	-- side instead of charging straight in.
+	FlankSquadSize = 4, -- soldiers per team assigned to flank
+	FlankWidth = 55, -- how far out to the side they swing before closing in
+}
+
+-- Pathfinding. Units only compute a path when an obstacle is actually between
+-- them and their goal (open field = no pathfinding cost). Paths are throttled
+-- and capped so hundreds of units can't all recompute at once.
+Config.Nav = {
+	AgentRadius = 2, -- how wide a gap a unit needs to fit through
+	RepathDistance = 12, -- recompute if the goal moved more than this
+	RecomputeInterval = 0.7, -- min seconds between a unit's path recomputes
+	WaypointReach = 4, -- how close before advancing to the next waypoint
+	MaxConcurrent = 8, -- max path computations happening at once
+	RayHeight = 2, -- height of the line-of-sight check
+}
+
+-- Death visuals.
+Config.Death = {
+	Ragdoll = true, -- limbs go limp and flop on death
+	PuffColor = Color3.fromRGB(130, 120, 100), -- dust puff color
+	PuffAmount = 18, -- particles per death
+}
+
+-- Floating health bars above each unit.
+Config.HealthBars = {
+	Enabled = true,
 }
 
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.

@@ -10,6 +10,10 @@
     "ServerScriptService": {
       "BattleSim": { "$path": "src/ServerScriptService/BattleSim.server.luau" },
       "Modules": { "$path": "src/ServerScriptService/Modules" }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": { "$path": "src/StarterPlayer/StarterPlayerScripts" }
     }
   }
 }

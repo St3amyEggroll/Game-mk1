@@ -1,37 +1,25 @@
 --[[
 	CombatSystem
 	------------
-	One unit's "turn", driven by the team's order:
+	One unit's "turn", driven by its role and the team's order:
 
-	  • Leaders  hang back behind the army and direct; they only fight in
-	    self-defense if an enemy reaches them.
-	  • Soldiers Advance to their formation slot, then Engage: close on the
-	    target, face it, and swing on cooldown.
+	  • Leader  — hangs back and directs; fights only in self-defense.
+	  • Guard   — screens the Leader; intercepts enemies that get close to it.
+	  • Flank   — swings wide to the FlankPoint, then hits the enemy's side.
+	  • Main    — advances in formation, then engages head-on.
 
-	Movement is steered by two cheap forces so it reads as smart, not a blob:
-	  • Separation     — push off crowding allies (no more shoving piles).
-	  • ObstacleAvoid  — raycast ahead and veer around walls/cover. This is what
-	    makes the army ready for the obstacles you're adding.
-
-	Plus morale: hit harder near a living Leader, weaker if the Leader is dead.
+	Movement goes through NavigationSystem (routes around obstacles) and is
+	nudged apart by separation. Morale boosts damage near a living Leader.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local NavigationSystem = require(script.Parent.NavigationSystem)
 
 local CombatSystem = {}
 
--- Raycasts for obstacle avoidance ignore the soldiers themselves.
-local avoidParams = RaycastParams.new()
-avoidParams.FilterType = Enum.RaycastFilterType.Exclude
-avoidParams.FilterDescendantsInstances = {}
-
--- Call at the start of each battle so avoidance ignores live units.
 function CombatSystem.RefreshObstacleFilter()
-	local unitsFolder = Workspace:FindFirstChild("Units")
-	avoidParams.FilterDescendantsInstances = unitsFolder and { unitsFolder } or {}
+	NavigationSystem.Refresh()
 end
 
 -- Push away from any allies crowding this unit (uses the tick's cached list).
@@ -51,40 +39,10 @@ local function separation(unit, allies)
 	return push
 end
 
--- Look ahead; if something's in the way, steer toward the clearer side.
-local function obstacleAvoid(unit, desiredDir)
-	if desiredDir.Magnitude < 0.01 then
-		return Vector3.zero
-	end
-	local dir = desiredDir.Unit
-	local origin = unit.Root.Position
-	local look = Config.Command.ObstacleLookAhead
-
-	if not Workspace:Raycast(origin, dir * look, avoidParams) then
-		return Vector3.zero -- clear path
-	end
-
-	-- Blocked ahead: test left/right and veer to whichever is open.
-	local left = Vector3.new(-dir.Z, 0, dir.X)
-	local leftBlocked = Workspace:Raycast(origin, left * look, avoidParams)
-	local rightBlocked = Workspace:Raycast(origin, -left * look, avoidParams)
-
-	local steer
-	if leftBlocked and rightBlocked then
-		steer = -dir -- boxed in; back off
-	elseif leftBlocked then
-		steer = -left
-	else
-		steer = left
-	end
-	return steer * Config.Command.ObstacleAvoidStrength
-end
-
--- Walk toward a goal, nudged by separation + obstacle avoidance.
-local function moveTo(unit, goal, allies)
-	local desired = goal - unit.Root.Position
-	local steer = separation(unit, allies) + obstacleAvoid(unit, desired)
-	unit.Humanoid:MoveTo(goal + steer)
+-- Walk toward a goal: route around obstacles, then nudge apart from allies.
+local function moveTo(unit, goal, allies, now)
+	local point = NavigationSystem.NextPoint(unit, goal, now)
+	unit.Humanoid:MoveTo(point + separation(unit, allies))
 end
 
 -- Snap to face a point (used while standing and swinging).
@@ -119,25 +77,66 @@ local function swingAt(unit, target, now, state)
 	end
 end
 
--- Leader: stay behind the army, only swing if an enemy is right on top of you.
-local function leaderAct(unit, now, state, allies)
-	if state and state.AllyCenter and state.EnemyCenter then
-		local back = state.AllyCenter - state.EnemyCenter
-		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
-		moveTo(unit, state.AllyCenter + back * Config.Leader.Standoff, allies)
-	end
-
-	-- Self-defense: nearest enemy within reach only.
+-- Nearest living enemy to a position, from the tick's cached enemy list.
+local function nearestEnemy(state, position)
 	local nearest, nearestDist = nil, math.huge
 	for _, enemy in (state and state.Enemies) or {} do
-		local dist = (enemy.Root.Position - unit.Root.Position).Magnitude
+		local dist = (enemy.Root.Position - position).Magnitude
 		if dist < nearestDist then
 			nearestDist = dist
 			nearest = enemy
 		end
 	end
-	if nearest and nearestDist <= unit.Stats.AttackRange then
+	return nearest, nearestDist
+end
+
+-- Close on a target and attack it (shared by Main/Flank engage and intercepts).
+local function fightTarget(unit, target, now, state, allies)
+	if not target or not target.Alive then
+		return
+	end
+	local dist = (target.Root.Position - unit.Root.Position).Magnitude
+	if dist > unit.Stats.AttackRange then
+		moveTo(unit, target.Root.Position, allies, now)
+	else
+		swingAt(unit, target, now, state)
+	end
+end
+
+-- Leader: stay behind the army; swing only if an enemy is right on top of you.
+local function leaderAct(unit, now, state, allies)
+	if state and state.AllyCenter and state.EnemyCenter then
+		local back = state.AllyCenter - state.EnemyCenter
+		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
+		moveTo(unit, state.AllyCenter + back * Config.Leader.Standoff, allies, now)
+	end
+
+	local nearest, dist = nearestEnemy(state, unit.Root.Position)
+	if nearest and dist <= unit.Stats.AttackRange then
 		swingAt(unit, nearest, now, state)
+	end
+end
+
+-- Guard: hold a screen in front of the Leader; intercept nearby threats.
+local function guardAct(unit, now, state, allies)
+	local leader = state and state.Leader
+	if not leader or not leader.Alive then
+		-- No one left to guard — fight like a normal soldier.
+		fightTarget(unit, unit.Target, now, state, allies)
+		return
+	end
+
+	local leaderPos = leader.Root.Position
+	local threat, threatDist = nearestEnemy(state, leaderPos)
+
+	if threat and threatDist <= Config.Leader.GuardEngageRange then
+		-- Enemy near the Leader: intercept it.
+		fightTarget(unit, threat, now, state, allies)
+	else
+		-- Otherwise screen the Leader between it and the enemy.
+		local toEnemy = (state.EnemyCenter or leaderPos) - leaderPos
+		toEnemy = toEnemy.Magnitude > 0.01 and toEnemy.Unit or Vector3.new(0, 0, 1)
+		moveTo(unit, leaderPos + toEnemy * Config.Leader.GuardScreenDistance + unit.FormationOffset, allies, now)
 	end
 end
 
@@ -149,24 +148,22 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
-	-- ADVANCE: march to your formation slot as a group.
-	if state and state.Order == "Advance" and state.RallyPoint then
-		moveTo(unit, state.RallyPoint + unit.FormationOffset, allies)
+	if unit.Role == "Guard" then
+		guardAct(unit, now, state, allies)
 		return
+	end
+
+	-- ADVANCE: march to formation. Flankers head wide to the flank point.
+	if state and state.Order == "Advance" then
+		local rally = (unit.Role == "Flank" and state.FlankPoint) or state.RallyPoint
+		if rally then
+			moveTo(unit, rally + unit.FormationOffset, allies, now)
+			return
+		end
 	end
 
 	-- ENGAGE: fight your target.
-	local target = unit.Target
-	if not target or not target.Alive then
-		return
-	end
-
-	local dist = (target.Root.Position - unit.Root.Position).Magnitude
-	if dist > unit.Stats.AttackRange then
-		moveTo(unit, target.Root.Position, allies)
-	else
-		swingAt(unit, target, now, state)
-	end
+	fightTarget(unit, unit.Target, now, state, allies)
 end
 
 return CombatSystem

@@ -11,6 +11,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local EffectsSystem = require(script.Parent.EffectsSystem)
+local Signals = require(script.Parent.Signals)
 
 local UnitManager = {}
 
@@ -38,13 +40,20 @@ function UnitManager.Register(model, teamKey, unitType)
 		LastAttack = 0, -- timestamp of last hit (for cooldown)
 		Alive = true,
 		IsLeader = false, -- set by SpawnSystem for the team's commander
+		Role = "Main", -- "Main" | "Flank" | "Guard", set by SpawnSystem
 		FormationOffset = Vector3.zero, -- this unit's slot in the marching block
+		Nav = nil, -- pathfinding state, managed by NavigationSystem
 	}
 
-	-- When the Humanoid dies, flag the row and turn the model into a corpse
-	-- that cleans itself up. The main loop prunes flagged rows next tick.
+	-- When the Humanoid dies: flag the row, play death FX, tell the HUD, and
+	-- leave a self-cleaning corpse. The main loop prunes flagged rows next tick.
 	humanoid.Died:Connect(function()
+		if not unit.Alive then
+			return
+		end
 		unit.Alive = false
+		EffectsSystem.PlayDeath(unit)
+		Signals.Fire({ kind = "kill", team = unit.Team, leader = unit.IsLeader })
 		task.delay(Config.CorpseLifetime, function()
 			if model and model.Parent then
 				model:Destroy()

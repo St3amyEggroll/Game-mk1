@@ -12,6 +12,11 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Players = game:GetService("Players")
+
+-- Spectator sim: don't spawn player avatars into the battlefield (they'd get
+-- shoved around and confuse pathfinding). The client runs a scripted camera.
+Players.CharacterAutoLoads = false
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Modules = ServerScriptService:WaitForChild("Modules")
@@ -20,6 +25,27 @@ local SpawnSystem = require(Modules.SpawnSystem)
 local CommandSystem = require(Modules.CommandSystem)
 local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
+local Signals = require(Modules.Signals)
+
+-- Survivor count per team, for the HUD scoreboard.
+local function teamCounts()
+	local counts = {}
+	for _, unit in UnitManager.Units do
+		if unit.Alive then
+			counts[unit.Team] = (counts[unit.Team] or 0) + 1
+		end
+	end
+	return counts
+end
+
+local function countsChanged(a, b)
+	for teamKey in Config.Teams do
+		if (a[teamKey] or 0) ~= (b[teamKey] or 0) then
+			return true
+		end
+	end
+	return false
+end
 
 -- Returns: "running", or a winning team key, or "draw".
 local function battleStatus()
@@ -52,6 +78,9 @@ local function runOneBattle()
 
 	print(("[BattleSim] Battle start! %d soldiers on the field."):format(#UnitManager.Units))
 
+	local lastCounts = teamCounts()
+	Signals.Fire({ kind = "start", counts = lastCounts })
+
 	while true do
 		local now = os.clock()
 
@@ -67,12 +96,21 @@ local function runOneBattle()
 		end
 		UnitManager.RemoveDead()
 
+		-- Push the scoreboard to the HUD only when a count actually changes.
+		local counts = teamCounts()
+		if countsChanged(counts, lastCounts) then
+			lastCounts = counts
+			Signals.Fire({ kind = "score", counts = counts })
+		end
+
 		local status = battleStatus()
 		if status ~= "running" then
 			if status == "draw" then
 				print("[BattleSim] Draw — both armies wiped out.")
+				Signals.Fire({ kind = "result", winner = false })
 			else
 				print(("[BattleSim] Winner: %s!"):format(Config.Teams[status].Name))
+				Signals.Fire({ kind = "result", winner = status })
 			end
 			break
 		end

@@ -112,6 +112,13 @@ function CommandSystem.Update()
 			local frontGap = (enemyCenter - allyCenter).Magnitude
 			state.Order = (frontGap > Config.Command.EngageRange) and "Advance" or "Engage"
 			state.FocusTarget = chooseFocus(enemies, allyCenter)
+
+			-- Flank point: out to one side of the enemy, so the flank squad
+			-- swings wide and hits from the side instead of head-on.
+			local axis = enemyCenter - allyCenter
+			axis = axis.Magnitude > 0 and axis.Unit or Vector3.new(1, 0, 0)
+			local side = Vector3.new(-axis.Z, 0, axis.X) -- perpendicular
+			state.FlankPoint = enemyCenter + side * Config.Command.FlankWidth
 		end
 	end
 end
