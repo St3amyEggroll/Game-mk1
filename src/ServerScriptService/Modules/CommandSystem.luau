@@ -49,22 +49,25 @@ local function knownPos(entry, enemy)
 	return entry.pos
 end
 
--- Fallback target when we can't see anyone: the nearest enemy spawn marker.
-local function nearestEnemySpawn(teamKey, fromPos)
-	local best, bestDist = nil, math.huge
-	for otherTeam, data in Config.Teams do
-		if otherTeam ~= teamKey then
-			local marker = Workspace:FindFirstChild(data.SpawnMarker)
-			if marker then
-				local dist = (marker.Position - fromPos).Magnitude
-				if dist < bestDist then
-					bestDist = dist
-					best = marker.Position
-				end
-			end
+-- The center of the battlefield — geography, NOT enemy intel. A blind army
+-- marches here to make contact instead of magically knowing where the enemy is.
+local cachedMapCenter = nil
+local function getMapCenter()
+	if cachedMapCenter then
+		return cachedMapCenter
+	end
+	local sum, n = Vector3.zero, 0
+	for _, data in Config.Teams do
+		local marker = Workspace:FindFirstChild(data.SpawnMarker)
+		if marker then
+			sum += marker.Position
+			n += 1
 		end
 	end
-	return best or (fromPos + Vector3.new(0, 0, 50))
+	if n > 0 then
+		cachedMapCenter = sum / n
+	end
+	return cachedMapCenter or Vector3.zero
 end
 
 -- Who the whole team focuses among KNOWN enemies: an enemy leader if we've
@@ -89,6 +92,7 @@ end
 
 function CommandSystem.Reset()
 	CommandSystem.TeamStates = {}
+	cachedMapCenter = nil
 end
 
 function CommandSystem.Update()
@@ -151,12 +155,14 @@ function CommandSystem.Update()
 
 		local allyCenter = averagePosition(allies)
 
-		-- The enemy base we're assaulting (nearest one we've discovered).
+		-- The enemy base we're assaulting (nearest one we've DISCOVERED by sight).
 		local assaultBase = BaseSystem.GetDiscoveredEnemyBase(teamKey, allyCenter)
 		state.AssaultBase = assaultBase
+		state.ExplorePoint = getMapCenter()
 
-		-- Enemy center + strength from what we can see. With nobody in sight,
-		-- march on the discovered base, else toward the nearest enemy spawn.
+		-- Enemy center + strength from what we can SEE. If we see nothing and
+		-- haven't found a base, we have no idea where they are -> explore the
+		-- center to make contact (no peeking at enemy spawns).
 		local enemyCenter, enemyHealth
 		if #knownList > 0 then
 			local sum = Vector3.zero
@@ -167,9 +173,22 @@ function CommandSystem.Update()
 			end
 			enemyCenter = sum / #knownList
 		else
-			enemyCenter = (assaultBase and assaultBase.Position) or nearestEnemySpawn(teamKey, allyCenter)
+			enemyCenter = (assaultBase and assaultBase.Position) or getMapCenter()
 			enemyHealth = 0
 		end
+
+		-- Leader objective: defend home if a KNOWN enemy is near our own base.
+		local ownBase = BaseSystem.Bases[teamKey]
+		local objective = "Assault"
+		if ownBase and ownBase.Alive then
+			for _, e in knownList do
+				if (knownPos(knowledge[e], e) - ownBase.Position).Magnitude <= Config.Command.DefendRadius then
+					objective = "Defend"
+					break
+				end
+			end
+		end
+		state.Objective = objective
 
 		state.AllyCenter = allyCenter
 		state.EnemyCenter = enemyCenter
@@ -206,7 +225,12 @@ function CommandSystem.Update()
 		end
 		state.LeaderThreatened = threatened
 
-		state.RallyPoint = enemyCenter
+		-- Defending? Rally on our own base; otherwise rally toward the enemy.
+		if objective == "Defend" and ownBase then
+			state.RallyPoint = ownBase.Position
+		else
+			state.RallyPoint = enemyCenter
+		end
 		state.HoldPoint = allyCenter + toEnemy * Config.Command.HoldDistance
 		state.RearPoint = allyCenter - toEnemy * Config.Command.RetreatDistance
 		state.FlankPoint = enemyCenter + side * Config.Command.FlankWidth

@@ -94,6 +94,17 @@ local function createBaseModel(teamKey, teamData, groundPos)
 	flag.Position = groundPos + Vector3.new(0, 25, 4.5)
 	flag.Parent = model
 
+	-- Watchtower: gives the team standing vision around home.
+	local tower = Instance.new("Part")
+	tower.Name = "Watchtower"
+	tower.Size = Vector3.new(4, 28, 4)
+	tower.Anchored = true
+	tower.CanQuery = false
+	tower.Material = Enum.Material.WoodPlanks
+	tower.Color = teamData.Color:Lerp(Color3.new(0, 0, 0), 0.2)
+	tower.Position = groundPos + Vector3.new(11, 14, 0)
+	tower.Parent = model
+
 	model.Parent = Workspace
 
 	local gui = Instance.new("BillboardGui")
@@ -180,6 +191,15 @@ end
 function BaseSystem.IsBaseAlive(teamKey)
 	local base = BaseSystem.Bases[teamKey]
 	return base ~= nil and base.Alive
+end
+
+-- Stationary vision sources for a team (its watchtower), used by VisionSystem.
+function BaseSystem.GetVisionSources(teamKey)
+	local base = BaseSystem.Bases[teamKey]
+	if base and base.Alive then
+		return { { pos = base.Position, range = Config.Base.WatchtowerRange } }
+	end
+	return {}
 end
 
 -- Nearest alive enemy base this team has discovered.

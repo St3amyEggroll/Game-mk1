@@ -21,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
 local NavigationSystem = require(script.Parent.NavigationSystem)
+local BaseSystem = require(script.Parent.BaseSystem)
 
 local VisionSystem = {}
 
@@ -77,7 +78,10 @@ function VisionSystem.Update(now)
 			VisionSystem.TeamKnowledge[teamKey] = knowledge
 		end
 
-		-- Which enemies can anyone on this team see right now?
+		-- Stationary eyes (the team's watchtower) see around home too.
+		local sources = BaseSystem.GetVisionSources(teamKey)
+
+		-- Which enemies can anyone (or anything) on this team see right now?
 		for otherTeam, list in byTeam do
 			if otherTeam ~= teamKey then
 				for _, enemy in list do
@@ -89,6 +93,16 @@ function VisionSystem.Update(now)
 						then
 							visible = true
 							break
+						end
+					end
+					if not visible then
+						for _, src in sources do
+							if (enemyPos - src.pos).Magnitude <= src.range
+								and NavigationSystem.HasLineOfSight(src.pos, enemyPos)
+							then
+								visible = true
+								break
+							end
 						end
 					end
 

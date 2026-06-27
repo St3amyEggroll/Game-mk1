@@ -187,6 +187,14 @@ Config.Command = {
 	RetreatRatio = 0.4, -- losing badly (or leader dead + losing) -> fall back
 	HoldDistance = 25, -- defensive: hold a line this far in front of own center
 	RetreatDistance = 70, -- how far back the rear/regroup point sits
+
+	-- Home defense (leader objective): if a KNOWN enemy gets within this of our
+	-- own base, the army turns around and rushes home to defend it.
+	DefendRadius = 70,
+
+	-- How far from the battlefield center scouts roam to search for the enemy
+	-- (and their bases) when the team has no intel.
+	ScoutRoamRadius = 170,
 }
 
 -- Units physically collide with each other. Turn off for big battles if the
@@ -243,6 +251,10 @@ Config.Base = {
 	RespawnInterval = 1.6, -- seconds between reinforcements from a living base
 	SetbackFromSpawn = 22, -- studs the base sits behind the spawn marker
 	Icon = "🏰",
+
+	-- Watchtower (Phase 4): each base has one that gives the team standing vision
+	-- around home, so it can't be sneak-attacked at its base without spotting it.
+	WatchtowerRange = 90,
 }
 
 -- Fog of war. Units only know what they (or a teammate) can see; sightings are

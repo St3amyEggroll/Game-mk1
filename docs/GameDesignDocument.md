@@ -98,8 +98,15 @@ Two optimization habits are baked in from day one:
   contact); units assault the discovered enemy base when no enemies are in view;
   a team is out only when its base is destroyed AND its units are dead.
   Unit icons above heads (read the battle from above).
-- **Phase 4 — structures & strategy**: barracks/watchtower/walls/gates/depot,
-  explicit leader objectives (rush/turtle/raid), dedicated scout-dispatch.
+- **Phase 4 — structures & strategy** ✅ (core): true fog (no peeking at enemy
+  spawns — blind armies explore the center, scouts roam to find the enemy/bases
+  and remember what they see); leader home-defense objective (rush back when the
+  base is threatened); watchtowers at each base granting home vision; walls/gates
+  = just anchored parts you place (pathfinding routes around, vision is blocked).
+  Deferred: barracks / supply depot (needs an economy), explicit rush/raid orders.
+
+### Optimization (Milestone 4, still pending)
+Spatial grid for targeting/vision + flow-field movement to reach 100v100.
 
 ### Deferred AI
 - Commit reserves (a held-back squad sent to a breaking flank).

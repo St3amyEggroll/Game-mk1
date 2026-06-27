@@ -234,6 +234,31 @@ local function flankAct(unit, now, state, allies)
 	end
 end
 
+-- Scout: when the team has no intel, range ahead (fanned out) to find the enemy
+-- -- the leader's eyes. Once something is known, fight/assist like the line.
+local function scoutAct(unit, now, state, allies)
+	local hasIntel = (state and state.KnownList and #state.KnownList > 0)
+		or (state and state.AssaultBase and state.AssaultBase.Alive)
+	if not hasIntel then
+		-- Sweep the map: roam to random points until we find something. Pick a
+		-- new spot once we reach the current one.
+		local center = (state and state.ExplorePoint) or unit.Root.Position
+		if not unit.ExploreTarget or (unit.ExploreTarget - unit.Root.Position).Magnitude < 15 then
+			local angle = math.random() * math.pi * 2
+			local dist = 40 + math.random() * Config.Command.ScoutRoamRadius
+			unit.ExploreTarget = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+		end
+		unit.WantsSprint = true
+		moveTo(unit, unit.ExploreTarget, allies, now)
+		return
+	end
+	if unit.Target then
+		fightTarget(unit, unit.Target, now, state, allies)
+	else
+		assault(unit, state, allies, now)
+	end
+end
+
 -- Archer: shoot visible targets from afar; kite away if they get too close.
 local function rangedAct(unit, now, state, allies)
 	if state and state.Order == "Advance" then
@@ -360,7 +385,12 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
-	-- Main / Scout. Advance to the rally (or a defensive hold line), then engage.
+	if unit.Role == "Scout" then
+		scoutAct(unit, now, state, allies)
+		return
+	end
+
+	-- Main. Advance to the rally (or a defensive hold line), then engage.
 	if state and state.Order == "Advance" then
 		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint
 		if rally then
