@@ -31,10 +31,19 @@ This is the decision that makes 100v100 possible later.
 
 - **Config** — every tunable number.
 - **UnitManager** — the master table of units; register / query / prune.
-- **SpawnSystem** — clone rigs, line up armies, register them.
-- **TargetingSystem** — pick who to fight (nearest enemy for now).
-- **CombatSystem** — move toward target, attack in range.
+- **SpawnSystem** — clone rigs, build Leader + formation, register them.
+- **CommandSystem** — the Leader's brain: sets each team's Order / RallyPoint /
+  FocusTarget once per tick. This is the seam a player Leader plugs into later.
+- **TargetingSystem** — pick who to fight (focus target, then nearest).
+- **CombatSystem** — formation advance, close + face + attack, separation, morale.
 - **BattleSim** — the conductor: spawn, tick everyone, check win, restart.
+
+### How a unit thinks each tick
+1. `CommandSystem` (Leader) sets the team plan: Advance vs Engage, where to
+   rally, who to focus.
+2. `TargetingSystem` picks the unit's target (focus-fire when in range).
+3. `CombatSystem` either marches to its formation slot (Advance) or closes,
+   faces, and attacks its target (Engage) — hitting harder near a live Leader.
 
 Two optimization habits are baked in from day one:
 - units "think" 10×/sec (`SimTick`), not every frame;
@@ -46,10 +55,11 @@ Two optimization habits are baked in from day one:
 |---|------|--------|
 | 1 | Spawn + march | ✅ done |
 | 2 | Melee combat + last-team-standing | ✅ done |
+| 2.5 | Leader + smarter AI (orders, formation, focus fire, morale) | ✅ done |
 | 3 | Ranged units (projectiles / line-of-sight) | ⬜ next |
 | 4 | Optimize to 100v100 (lightweight units, spatial targeting) | ⬜ |
 | 5 | Polish (health bars, death FX, stats UI) | ⬜ |
-| 6 | Commander control (player directs one side) | ⬜ |
+| 6 | Player commander takes over the Leader role | ⬜ |
 
 ## Known shortcuts to revisit
 

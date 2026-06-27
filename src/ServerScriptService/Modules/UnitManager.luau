@@ -37,6 +37,8 @@ function UnitManager.Register(model, teamKey, unitType)
 		Target = nil, -- another unit table, chosen by TargetingSystem
 		LastAttack = 0, -- timestamp of last hit (for cooldown)
 		Alive = true,
+		IsLeader = false, -- set by SpawnSystem for the team's commander
+		FormationOffset = Vector3.zero, -- this unit's slot in the marching block
 	}
 
 	-- When the Humanoid dies, flag the row and turn the model into a corpse
@@ -56,13 +58,50 @@ end
 
 -- All living enemies of the given unit.
 function UnitManager.GetEnemies(unit)
+	return UnitManager.GetEnemyUnits(unit.Team)
+end
+
+-- All living units NOT on the given team.
+function UnitManager.GetEnemyUnits(teamKey)
 	local enemies = {}
 	for _, other in UnitManager.Units do
-		if other.Alive and other.Team ~= unit.Team then
+		if other.Alive and other.Team ~= teamKey then
 			table.insert(enemies, other)
 		end
 	end
 	return enemies
+end
+
+-- All living units ON the given team.
+function UnitManager.GetTeamUnits(teamKey)
+	local team = {}
+	for _, other in UnitManager.Units do
+		if other.Alive and other.Team == teamKey then
+			table.insert(team, other)
+		end
+	end
+	return team
+end
+
+-- Living teammates of a unit (excluding itself).
+function UnitManager.GetAllies(unit)
+	local allies = {}
+	for _, other in UnitManager.Units do
+		if other ~= unit and other.Alive and other.Team == unit.Team then
+			table.insert(allies, other)
+		end
+	end
+	return allies
+end
+
+-- The living Leader of a team, or nil if it has fallen.
+function UnitManager.GetLeader(teamKey)
+	for _, other in UnitManager.Units do
+		if other.Alive and other.Team == teamKey and other.IsLeader then
+			return other
+		end
+	end
+	return nil
 end
 
 -- A set of team keys that still have at least one living soldier.

@@ -1,9 +1,9 @@
 --[[
 	SpawnSystem
 	-----------
-	Clones rig templates from ReplicatedStorage/Assets and lines each army up
-	in a grid near its spawn marker. Registers every spawned unit with the
-	UnitManager so the brain loop can drive it.
+	Builds each army: one Leader plus its soldiers, arranged in a formation
+	near the team's spawn marker. Each unit is given a FormationOffset (its slot
+	in the marching block) and registered with the UnitManager.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,7 +34,39 @@ local function colorModel(model, color)
 	end
 end
 
--- Spawn one team's full composition at its marker.
+-- A glow so you can spot the Leader on the field.
+local function addGlow(model, color)
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = color
+	highlight.FillTransparency = 0.5
+	highlight.OutlineColor = color
+	highlight.Parent = model
+end
+
+-- The slot offset (centered grid) for the Nth unit in the army.
+local function formationOffset(slotIndex)
+	local cols = Config.Command.FormationColumns
+	local spacing = Config.Command.FormationSpacing
+	local col = slotIndex % cols
+	local row = math.floor(slotIndex / cols)
+	return Vector3.new((col - (cols - 1) / 2) * spacing, 0, row * spacing)
+end
+
+-- Expand the composition (plus a Leader) into a flat list of soldiers to spawn.
+local function buildRoster()
+	local roster = {}
+	if Config.Leader.Enabled then
+		table.insert(roster, { Type = "Melee", IsLeader = true })
+	end
+	for _, group in Config.Composition do
+		for _ = 1, group.Count do
+			table.insert(roster, { Type = group.Type, IsLeader = false })
+		end
+	end
+	return roster
+end
+
+-- Spawn one team's Leader + soldiers.
 local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 	local marker = Workspace:FindFirstChild(teamData.SpawnMarker)
 	if not marker then
@@ -42,41 +74,41 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 		return
 	end
 
-	-- Face the units toward the middle of the map (toward world origin-ish).
+	-- Face the army toward the middle of the map.
 	local facing = CFrame.lookAt(marker.Position, Vector3.new(0, marker.Position.Y, 0))
 
-	local index = 0
-	for _, group in Config.Composition do
-		local stats = Config.UnitTypes[group.Type]
+	local roster = buildRoster()
+	for slotIndex, slot in roster do
+		local stats = Config.UnitTypes[slot.Type]
 		local template = assets:FindFirstChild(stats.RigName)
 		if not template then
 			warn(("[SpawnSystem] No rig named '%s' in ReplicatedStorage/Assets."):format(stats.RigName))
 			continue
 		end
 
-		for _ = 1, group.Count do
-			-- Grid offset: spread out so they don't spawn inside each other.
-			local col = index % Config.SpawnColumns
-			local row = math.floor(index / Config.SpawnColumns)
-			local localOffset = Vector3.new(
-				(col - (Config.SpawnColumns - 1) / 2) * Config.SpawnSpacing,
-				3,
-				row * Config.SpawnSpacing
-			)
+		local offset = formationOffset(slotIndex - 1)
 
-			local model = template:Clone()
-			model:PivotTo(facing * CFrame.new(localOffset))
-			colorModel(model, teamData.Color)
-			model.Parent = unitsFolder
+		local model = template:Clone()
+		-- Lift slightly so they don't spawn clipped into the floor.
+		model:PivotTo(facing * CFrame.new(offset + Vector3.new(0, 3, 0)))
+		colorModel(model, teamData.Color)
 
-			local humanoid = model:FindFirstChildOfClass("Humanoid")
-			humanoid.MaxHealth = stats.MaxHealth
-			humanoid.Health = stats.MaxHealth
-			humanoid.WalkSpeed = stats.WalkSpeed
-
-			UnitManager.Register(model, teamKey, group.Type)
-			index += 1
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		local maxHealth = stats.MaxHealth
+		if slot.IsLeader then
+			maxHealth = math.floor(stats.MaxHealth * Config.Leader.HealthMultiplier)
+			model:ScaleTo(Config.Leader.Scale)
+			addGlow(model, Config.Leader.GlowColor)
 		end
+		humanoid.MaxHealth = maxHealth
+		humanoid.Health = maxHealth
+		humanoid.WalkSpeed = stats.WalkSpeed
+
+		model.Parent = unitsFolder
+
+		local unit = UnitManager.Register(model, teamKey, slot.Type)
+		unit.IsLeader = slot.IsLeader
+		unit.FormationOffset = offset
 	end
 end
 

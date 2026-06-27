@@ -45,15 +45,41 @@ Config.UnitTypes = {
 	},
 }
 
--- What each team is made of. Add more entries / bump Count to grow the army.
--- Milestone 2 = melee only. We'll add a Ranged line here in Milestone 3.
+-- What each team is made of (NOT counting the Leader, who is added on top).
+-- Add more entries / bump Count to grow the army.
 Config.Composition = {
-	{ Type = "Melee", Count = 5 },
+	{ Type = "Melee", Count = 8 },
 }
 
--- How units are arranged when they spawn (a grid near the spawn marker).
-Config.SpawnSpacing = 4 -- studs between units
-Config.SpawnColumns = 5 -- units per row
+-- The Leader directs the team. It's a beefier, scaled-up unit with a glow.
+-- For now the Leader is AI-controlled; later a player can take its place.
+Config.Leader = {
+	Enabled = true,
+	HealthMultiplier = 3, -- leader has 3x a normal soldier's health
+	Scale = 1.5, -- visually bigger so you can spot it
+	GlowColor = Color3.fromRGB(255, 230, 120), -- highlight tint
+}
+
+-- Army-level behavior the Leader coordinates.
+Config.Command = {
+	-- Teams hold formation and Advance until enemies get this close, then Engage.
+	EngageRange = 45,
+	-- During Engage, a unit will gang up on the Leader's focus target if it's
+	-- within this range; otherwise it fights whoever's nearest.
+	FocusRange = 55,
+	-- Shape of the marching formation.
+	FormationSpacing = 6, -- studs between soldiers
+	FormationColumns = 5, -- soldiers per row
+
+	-- Morale: soldiers fighting near a living Leader hit harder. If the Leader
+	-- dies, the whole army loses its edge.
+	MoraleRange = 35,
+	MoraleDamageBonus = 1.3, -- +30% damage near the leader
+	LeaderlessDamagePenalty = 0.75, -- -25% damage with no leader alive
+
+	-- How hard units avoid piling on top of each other while moving.
+	SeparationRadius = 4,
+}
 
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.
 -- This is NOT every frame on purpose — it's the first and most important

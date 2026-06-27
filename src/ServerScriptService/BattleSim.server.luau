@@ -17,6 +17,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Modules = ServerScriptService:WaitForChild("Modules")
 local UnitManager = require(Modules.UnitManager)
 local SpawnSystem = require(Modules.SpawnSystem)
+local CommandSystem = require(Modules.CommandSystem)
 local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
 
@@ -40,6 +41,7 @@ end
 
 local function runOneBattle()
 	UnitManager.Clear()
+	CommandSystem.Reset()
 	SpawnSystem.SpawnAllTeams()
 
 	if #UnitManager.Units == 0 then
@@ -52,10 +54,14 @@ local function runOneBattle()
 	while true do
 		local now = os.clock()
 
+		-- Leaders set each team's plan first, then soldiers act on it.
+		CommandSystem.Update()
+
 		for _, unit in UnitManager.Units do
 			if unit.Alive then
-				TargetingSystem.UpdateTarget(unit)
-				CombatSystem.Act(unit, now)
+				local state = CommandSystem.GetState(unit.Team)
+				TargetingSystem.UpdateTarget(unit, state)
+				CombatSystem.Act(unit, now, state)
 			end
 		end
 		UnitManager.RemoveDead()
