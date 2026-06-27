@@ -34,6 +34,7 @@ Config.UnitTypes = {
 		AttackRange = 6, -- studs; has to get right up close
 		AttackDamage = 18,
 		AttackCooldown = 1.0, -- seconds between swings
+		Priority = 1, -- how juicy a target this is (healers/artillery > grunts)
 	},
 	Ranged = {
 		RigName = "RangedUnit",
@@ -42,7 +43,22 @@ Config.UnitTypes = {
 		AttackRange = 60,
 		AttackDamage = 10,
 		AttackCooldown = 1.5,
+		Priority = 1.5, -- squishy and dangerous, worth focusing
 	},
+}
+
+-- How units pick a target (threat assessment + priorities). Higher weight =
+-- matters more. They prefer: high-value enemies, whoever is attacking them or
+-- their leader, and the leader's focus call -- balanced against distance.
+Config.Targeting = {
+	DistanceWeight = 1.0, -- farther = less appealing
+	PriorityWeight = 25, -- UnitType.Priority (leader uses LeaderPriority)
+	LeaderPriority = 4, -- the enemy leader is a top target
+	SelfThreatWeight = 40, -- an enemy currently attacking ME
+	LeaderThreatWeight = 55, -- an enemy currently attacking MY leader
+	FocusWeight = 30, -- the leader's called focus target
+	Hysteresis = 20, -- bonus for keeping current target (stops thrashing)
+	ThreatMemory = 3, -- seconds an attacker is remembered as a threat
 }
 
 -- What each team is made of (NOT counting the Leader, who is added on top).
@@ -65,6 +81,12 @@ Config.Leader = {
 	GuardSquadSize = 3, -- soldiers assigned to guard their Leader
 	GuardScreenDistance = 9, -- how far in front of the Leader they hold
 	GuardEngageRange = 28, -- guards attack any enemy this close to the Leader
+
+	-- Self-protection: when enemies get within ThreatRadius of the Leader, it
+	-- pulls back further and its guards close into a defensive RING around it.
+	ThreatRadius = 40, -- enemy within this of the Leader = "threatened"
+	RetreatStandoff = 45, -- how far back the Leader pulls when threatened
+	GuardRingRadius = 7, -- radius of the guard ring around a threatened Leader
 }
 
 -- Army-level behavior the Leader coordinates.
@@ -87,10 +109,30 @@ Config.Command = {
 	-- How hard units avoid piling on top of each other while moving.
 	SeparationRadius = 4,
 
-	-- Flanking: a squad peels off and swings wide to hit the enemy from the
-	-- side instead of charging straight in.
+	-- Flanking: a squad peels off ONLY once the front lines are engaged, then
+	-- drives at the enemy's rear / leader (pour through the gap).
 	FlankSquadSize = 4, -- soldiers per team assigned to flank
 	FlankWidth = 55, -- how far out to the side they swing before closing in
+
+	-- "Read the battle": stance from strength ratio (own health vs enemy).
+	AggressiveRatio = 1.35, -- winning by this much -> push hard
+	DefensiveRatio = 0.7, -- losing past this -> turtle up
+	RetreatRatio = 0.4, -- losing badly (or leader dead + losing) -> fall back
+	HoldDistance = 25, -- defensive: hold a line this far in front of own center
+	RetreatDistance = 70, -- how far back the rear/regroup point sits
+}
+
+-- Units physically collide with each other. Turn off for big battles if the
+-- shoving gets expensive (separation steering still keeps them spaced).
+Config.UnitsCollide = true
+
+-- Hazards: put parts in a Workspace folder named "Hazards" (lava, fire,
+-- explosive zones). Units steer around them and take damage if caught inside.
+Config.Hazards = {
+	AvoidRadius = 9, -- how far out units start steering away
+	AvoidStrength = 1.5, -- how hard they veer off
+	Damage = 12, -- damage per tick while standing in a hazard
+	DamageInterval = 0.4, -- seconds between hazard damage ticks
 }
 
 -- Pathfinding. Units only compute a path when an obstacle is actually between

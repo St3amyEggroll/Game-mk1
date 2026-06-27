@@ -101,6 +101,7 @@ local SpawnSystem = require(Modules.SpawnSystem)
 local CommandSystem = require(Modules.CommandSystem)
 local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
+local HazardSystem = require(Modules.HazardSystem)
 local Signals = require(Modules.Signals)
 
 -- Survivor count per team, for the HUD scoreboard.
@@ -160,16 +161,19 @@ local function runOneBattle()
 	while true do
 		local now = os.clock()
 
-		-- Leaders set each team's plan first, then soldiers act on it.
+		-- Refresh hazard zones, then leaders set each team's plan, then soldiers act.
+		HazardSystem.Refresh()
 		CommandSystem.Update()
 
 		for _, unit in UnitManager.Units do
 			if unit.Alive then
 				local state = CommandSystem.GetState(unit.Team)
-				TargetingSystem.UpdateTarget(unit, state)
+				TargetingSystem.UpdateTarget(unit, state, now)
 				CombatSystem.Act(unit, now, state)
 			end
 		end
+
+		HazardSystem.ApplyDamage(UnitManager.Units, now)
 		UnitManager.RemoveDead()
 
 		-- Push the scoreboard to the HUD only when a count actually changes.

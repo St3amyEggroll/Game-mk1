@@ -29,7 +29,7 @@ local function ensureCollisionGroup()
 		PhysicsService:RegisterCollisionGroup(UNITS_GROUP)
 	end)
 	pcall(function()
-		PhysicsService:CollisionGroupSetCollidable(UNITS_GROUP, UNITS_GROUP, false)
+		PhysicsService:CollisionGroupSetCollidable(UNITS_GROUP, UNITS_GROUP, Config.UnitsCollide)
 	end)
 	collisionReady = true
 end
@@ -96,6 +96,7 @@ local function buildRoster()
 	for index, soldier in soldiers do
 		if index <= guards then
 			soldier.Role = "Guard"
+			soldier.GuardIndex = index - 1 -- 0-based slot in the guard ring
 		elseif index <= guards + flankers then
 			soldier.Role = "Flank"
 		end
@@ -149,6 +150,7 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 		local unit = UnitManager.Register(model, teamKey, slot.Type)
 		unit.IsLeader = slot.IsLeader
 		unit.Role = slot.Role
+		unit.GuardIndex = slot.GuardIndex or 0
 		unit.FormationOffset = offset
 	end
 end

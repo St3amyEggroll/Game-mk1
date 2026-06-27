@@ -1,20 +1,27 @@
 --[[
 	CombatSystem
 	------------
-	One unit's "turn", driven by its role and the team's order:
+	One unit's "turn", driven by its role + the team's stance/order:
 
-	  • Leader  — hangs back and directs; fights only in self-defense.
-	  • Guard   — screens the Leader; intercepts enemies that get close to it.
-	  • Flank   — swings wide to the FlankPoint, then hits the enemy's side.
-	  • Main    — advances in formation, then engages head-on.
+	  • Leader  — directs from the back; pulls back further when threatened;
+	              self-defends only.
+	  • Guard   — screens the Leader, or forms a defensive RING when the Leader
+	              is threatened; intercepts anything near him.
+	  • Flank   — stays with the line while advancing, then peels off ONCE
+	              engaged and drives at the enemy's rear / leader.
+	  • Main    — advances (to the rally or a defensive hold line), then engages.
 
-	Movement goes through NavigationSystem (routes around obstacles) and is
-	nudged apart by separation. Morale boosts damage near a living Leader.
+	On a Retreat order everyone falls back to the rear regroup point.
+
+	Movement routes around obstacles (NavigationSystem), steers apart from
+	allies (separation) and away from hazards. Attacks record who hit whom so
+	the TargetingSystem can do threat assessment.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local NavigationSystem = require(script.Parent.NavigationSystem)
+local HazardSystem = require(script.Parent.HazardSystem)
 
 local CombatSystem = {}
 
@@ -22,7 +29,6 @@ function CombatSystem.RefreshObstacleFilter()
 	NavigationSystem.Refresh()
 end
 
--- Push away from any allies crowding this unit (uses the tick's cached list).
 local function separation(unit, allies)
 	local push = Vector3.zero
 	local pos = unit.Root.Position
@@ -39,13 +45,13 @@ local function separation(unit, allies)
 	return push
 end
 
--- Walk toward a goal: route around obstacles, then nudge apart from allies.
+-- Route around obstacles, then steer apart from allies and away from hazards.
 local function moveTo(unit, goal, allies, now)
 	local point = NavigationSystem.NextPoint(unit, goal, now)
-	unit.Humanoid:MoveTo(point + separation(unit, allies))
+	local steer = separation(unit, allies) + HazardSystem.Repel(unit.Root.Position)
+	unit.Humanoid:MoveTo(point + steer)
 end
 
--- Snap to face a point (used while standing and swinging).
 local function faceToward(unit, targetPos)
 	local pos = unit.Root.Position
 	local look = Vector3.new(targetPos.X, pos.Y, targetPos.Z)
@@ -54,7 +60,6 @@ local function faceToward(unit, targetPos)
 	end
 end
 
--- Damage after morale.
 local function attackDamage(unit, state)
 	local damage = unit.Stats.AttackDamage
 	local leader = state and state.Leader
@@ -74,10 +79,12 @@ local function swingAt(unit, target, now, state)
 	if now - unit.LastAttack >= unit.Stats.AttackCooldown then
 		unit.LastAttack = now
 		target.Humanoid:TakeDamage(attackDamage(unit, state))
+		-- Record the threat so the victim can prioritize us back.
+		target.AttackedBy = unit
+		target.AttackedAt = now
 	end
 end
 
--- Nearest living enemy to a position, from the tick's cached enemy list.
 local function nearestEnemy(state, position)
 	local nearest, nearestDist = nil, math.huge
 	for _, enemy in (state and state.Enemies) or {} do
@@ -90,7 +97,7 @@ local function nearestEnemy(state, position)
 	return nearest, nearestDist
 end
 
--- Close on a target and attack it (shared by Main/Flank engage and intercepts).
+-- Close on a target and attack it.
 local function fightTarget(unit, target, now, state, allies)
 	if not target or not target.Alive then
 		return
@@ -103,12 +110,16 @@ local function fightTarget(unit, target, now, state, allies)
 	end
 end
 
--- Leader: stay behind the army; swing only if an enemy is right on top of you.
+-- Leader: direct from the back; pull back further when threatened; self-defend.
 local function leaderAct(unit, now, state, allies)
 	if state and state.AllyCenter and state.EnemyCenter then
 		local back = state.AllyCenter - state.EnemyCenter
 		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
-		moveTo(unit, state.AllyCenter + back * Config.Leader.Standoff, allies, now)
+		local danger = state.LeaderThreatened or state.Stance == "Defensive" or state.Stance == "Retreat"
+		local standoff = danger and Config.Leader.RetreatStandoff or Config.Leader.Standoff
+		local goal = state.Stance == "Retreat" and state.RearPoint
+			or (state.AllyCenter + back * standoff)
+		moveTo(unit, goal, allies, now)
 	end
 
 	local nearest, dist = nearestEnemy(state, unit.Root.Position)
@@ -117,26 +128,56 @@ local function leaderAct(unit, now, state, allies)
 	end
 end
 
--- Guard: hold a screen in front of the Leader; intercept nearby threats.
+-- Guard: screen the Leader, or ring up around him when he's threatened.
 local function guardAct(unit, now, state, allies)
 	local leader = state and state.Leader
 	if not leader or not leader.Alive then
-		-- No one left to guard — fight like a normal soldier.
 		fightTarget(unit, unit.Target, now, state, allies)
 		return
 	end
 
 	local leaderPos = leader.Root.Position
 	local threat, threatDist = nearestEnemy(state, leaderPos)
-
 	if threat and threatDist <= Config.Leader.GuardEngageRange then
-		-- Enemy near the Leader: intercept it.
 		fightTarget(unit, threat, now, state, allies)
+		return
+	end
+
+	local ringUp = state.LeaderThreatened or state.Stance == "Defensive" or state.Stance == "Retreat"
+	if ringUp then
+		-- Evenly spaced ring around the Leader.
+		local count = math.max(1, Config.Leader.GuardSquadSize)
+		local angle = (unit.GuardIndex / count) * math.pi * 2
+		local spot = leaderPos + Vector3.new(math.cos(angle), 0, math.sin(angle)) * Config.Leader.GuardRingRadius
+		moveTo(unit, spot, allies, now)
 	else
-		-- Otherwise screen the Leader between it and the enemy.
+		-- Screen the front (between Leader and enemy).
 		local toEnemy = (state.EnemyCenter or leaderPos) - leaderPos
 		toEnemy = toEnemy.Magnitude > 0.01 and toEnemy.Unit or Vector3.new(0, 0, 1)
 		moveTo(unit, leaderPos + toEnemy * Config.Leader.GuardScreenDistance + unit.FormationOffset, allies, now)
+	end
+end
+
+-- Flank: hold with the line while advancing; once engaged, drive at the
+-- enemy's rear / leader to pour through the gap.
+local function flankAct(unit, now, state, allies)
+	if state.Order == "Engage" then
+		if unit.Target and unit.Target.Alive then
+			local dist = (unit.Target.Root.Position - unit.Root.Position).Magnitude
+			if dist <= unit.Stats.AttackRange then
+				swingAt(unit, unit.Target, now, state)
+				return
+			end
+		end
+		-- Push toward the enemy leader if known, else the flank point.
+		local drive = (state.FocusTarget and state.FocusTarget.Alive and state.FocusTarget.Root.Position)
+			or state.FlankPoint
+			or unit.Root.Position
+		moveTo(unit, drive, allies, now)
+	else
+		-- Advancing: stay in formation with the main line.
+		local rally = state.RallyPoint or state.AllyCenter or unit.Root.Position
+		moveTo(unit, rally + unit.FormationOffset, allies, now)
 	end
 end
 
@@ -148,21 +189,39 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
+	-- Retreat overrides roles: everyone falls back, fighting only in reach.
+	if state and state.Order == "Retreat" then
+		if unit.Role == "Guard" then
+			guardAct(unit, now, state, allies)
+		else
+			moveTo(unit, (state.RearPoint or state.AllyCenter) + unit.FormationOffset, allies, now)
+			local nearest, dist = nearestEnemy(state, unit.Root.Position)
+			if nearest and dist <= unit.Stats.AttackRange then
+				swingAt(unit, nearest, now, state)
+			end
+		end
+		return
+	end
+
 	if unit.Role == "Guard" then
 		guardAct(unit, now, state, allies)
 		return
 	end
 
-	-- ADVANCE: march to formation. Flankers head wide to the flank point.
+	if unit.Role == "Flank" then
+		flankAct(unit, now, state, allies)
+		return
+	end
+
+	-- Main line. Advance to the rally (or a defensive hold line), then engage.
 	if state and state.Order == "Advance" then
-		local rally = (unit.Role == "Flank" and state.FlankPoint) or state.RallyPoint
+		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint
 		if rally then
 			moveTo(unit, rally + unit.FormationOffset, allies, now)
 			return
 		end
 	end
 
-	-- ENGAGE: fight your target.
 	fightTarget(unit, unit.Target, now, state, allies)
 end
 

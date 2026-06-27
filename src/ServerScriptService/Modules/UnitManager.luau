@@ -41,8 +41,11 @@ function UnitManager.Register(model, teamKey, unitType)
 		Alive = true,
 		IsLeader = false, -- set by SpawnSystem for the team's commander
 		Role = "Main", -- "Main" | "Flank" | "Guard", set by SpawnSystem
+		GuardIndex = 0, -- this guard's slot in the defensive ring
 		FormationOffset = Vector3.zero, -- this unit's slot in the marching block
 		Nav = nil, -- pathfinding state, managed by NavigationSystem
+		AttackedBy = nil, -- last enemy that hit us (for threat assessment)
+		AttackedAt = 0, -- when that hit landed
 	}
 
 	-- When the Humanoid dies: flag the row, play death FX, tell the HUD, and

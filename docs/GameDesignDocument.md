@@ -62,11 +62,26 @@ Two optimization habits are baked in from day one:
 | 5 | More polish (sound, kill streaks, win-screen stats) | ⬜ |
 | 6 | Player commander takes over the Leader role | ⬜ |
 
-### Roles & tactics (2.7)
-- **Leader** hangs back and directs; only self-defends.
-- **Guards** screen the Leader — the counter to focus-fire assassination.
-- **Flankers** swing wide to the FlankPoint and hit from the side.
-- **Main** line advances in formation, then engages.
+### Roles & tactics (2.7 / 2.8)
+- **Leader** hangs back and directs; pulls back further & self-defends when
+  threatened.
+- **Guards** screen the Leader, or form a defensive **ring** around him when
+  he's threatened — the counter to focus-fire assassination.
+- **Flankers** hold the line while advancing, then peel off **once engaged**
+  and drive at the enemy's rear/leader.
+- **Main** line advances (rally, or a defensive hold line), then engages.
+- **Stance** (read the battle): Aggressive / Balanced / Defensive / Retreat,
+  chosen each tick from the health ratio.
+- **Threat assessment**: units prefer enemies attacking them or their leader,
+  plus high-value targets (leader, later healers/artillery).
+- **Hazards**: parts in a Workspace `Hazards` folder repel units and deal
+  damage to anyone caught inside.
+- **Collisions**: units physically collide (toggle `Config.UnitsCollide`).
+
+### Deferred AI (next)
+- Commit reserves (a held-back squad sent to a breaking flank).
+- Automatic chokepoint funneling / high-ground seeking.
+- Feints (fake a frontal push while flanking).
 - **NavigationSystem** only pathfinds when an obstacle is actually in the
   line of sight to the goal (open field = one cheap ray per unit).
 - **Client HUD**: action camera, survivor scoreboard, kill feed, win banner.
