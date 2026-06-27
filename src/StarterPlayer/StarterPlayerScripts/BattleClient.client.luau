@@ -152,49 +152,130 @@ signals.OnClientEvent:Connect(function(payload)
 	end
 end)
 
--- ----------------------------------------------------------- Action camera ---
+-- -------------------------------------------------------- Spectator camera ---
+-- Free-fly: WASD to move, hold Right Mouse to look, Q/E down/up, Shift = fast.
+-- Press F to toggle an auto-follow cam that frames the whole battle.
+
+local UserInputService = game:GetService("UserInputService")
 
 local camera = Workspace.CurrentCamera
 camera.CameraType = Enum.CameraType.Scriptable
 
+local MOVE_SPEED = 70 -- studs/sec
+local FAST_MULTIPLIER = 3.5
+local LOOK_SENSITIVITY = 0.005
+
+-- Camera state, tracked as a position + yaw/pitch we rebuild each frame.
+local camPos = Vector3.new(0, 120, 220)
+local yaw, pitch = 0, math.rad(-28)
+local held = {} -- keycode name -> true
+local looking = false
+local followMode = false
+
+local function camRotation()
+	return CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
+end
+
+-- Average position + spread of all units, for the follow cam.
 local function battleFocus()
 	local unitsFolder = Workspace:FindFirstChild("Units")
 	if not unitsFolder then
 		return nil, 0
 	end
-
-	local sum, count, maxSpread = Vector3.zero, 0, 0
-	local roots = {}
+	local sum, count = Vector3.zero, 0
+	local positions = {}
 	for _, model in unitsFolder:GetChildren() do
 		local root = model:FindFirstChild("HumanoidRootPart")
 		if root then
 			sum += root.Position
 			count += 1
-			table.insert(roots, root.Position)
+			table.insert(positions, root.Position)
 		end
 	end
 	if count == 0 then
 		return nil, 0
 	end
-
 	local center = sum / count
-	for _, pos in roots do
-		maxSpread = math.max(maxSpread, (pos - center).Magnitude)
+	local spread = 0
+	for _, pos in positions do
+		spread = math.max(spread, (pos - center).Magnitude)
 	end
-	return center, maxSpread
+	return center, spread
 end
 
-RunService.RenderStepped:Connect(function()
-	local center, spread = battleFocus()
-	if not center then
+-- Controls hint (bottom center).
+local hint = Instance.new("TextLabel")
+hint.Size = UDim2.fromOffset(640, 24)
+hint.Position = UDim2.new(0.5, -320, 1, -32)
+hint.BackgroundTransparency = 1
+hint.Font = Enum.Font.Gotham
+hint.TextSize = 15
+hint.TextColor3 = Color3.fromRGB(235, 235, 235)
+hint.TextStrokeTransparency = 0.5
+hint.Text = "WASD fly  ·  hold Right-Mouse to look  ·  Q/E down/up  ·  Shift boost  ·  F auto-follow"
+hint.Parent = screen
+
+-- Input: keys.
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		held[input.KeyCode.Name] = true
+		if input.KeyCode == Enum.KeyCode.F then
+			followMode = not followMode
+		end
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		looking = true
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		held[input.KeyCode.Name] = nil
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		looking = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	end
+end)
+
+-- Input: mouse look while holding RMB.
+UserInputService.InputChanged:Connect(function(input)
+	if looking and input.UserInputType == Enum.UserInputType.MouseMovement then
+		yaw -= input.Delta.X * LOOK_SENSITIVITY
+		pitch = math.clamp(pitch - input.Delta.Y * LOOK_SENSITIVITY, math.rad(-89), math.rad(89))
+	end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+	if followMode then
+		local center, spread = battleFocus()
+		if center then
+			local distance = math.clamp(spread * 1.6 + 40, 60, 320)
+			local height = math.clamp(spread * 1.1 + 30, 40, 240)
+			local goal = CFrame.lookAt(center + Vector3.new(0, height, distance), center)
+			camera.CFrame = camera.CFrame:Lerp(goal, 0.05)
+			camPos = camera.CFrame.Position -- so freecam resumes from here
+		end
 		return
 	end
 
-	-- Pull back and rise based on how spread out the battle is.
-	local distance = math.clamp(spread * 1.6 + 40, 60, 320)
-	local height = math.clamp(spread * 1.1 + 30, 40, 240)
-	local goalPos = center + Vector3.new(0, height, distance)
-	local goalCFrame = CFrame.lookAt(goalPos, center)
+	-- Free-fly movement relative to where we're looking.
+	local rot = camRotation()
+	local move = Vector3.zero
+	if held.W then move += rot.LookVector end
+	if held.S then move -= rot.LookVector end
+	if held.D then move += rot.RightVector end
+	if held.A then move -= rot.RightVector end
+	if held.E then move += Vector3.new(0, 1, 0) end
+	if held.Q then move += Vector3.new(0, -1, 0) end
 
-	camera.CFrame = camera.CFrame:Lerp(goalCFrame, 0.04)
+	if move.Magnitude > 0 then
+		local fast = held.LeftShift or held.RightShift
+		local speed = MOVE_SPEED * (fast and FAST_MULTIPLIER or 1)
+		camPos += move.Unit * speed * dt
+	end
+
+	camera.CFrame = CFrame.new(camPos) * rot
 end)
