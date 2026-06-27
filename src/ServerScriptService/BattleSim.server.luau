@@ -43,6 +43,7 @@ local function runOneBattle()
 	UnitManager.Clear()
 	CommandSystem.Reset()
 	SpawnSystem.SpawnAllTeams()
+	CombatSystem.RefreshObstacleFilter()
 
 	if #UnitManager.Units == 0 then
 		warn("[BattleSim] Nothing spawned. Check your rigs and spawn markers, then save again.")

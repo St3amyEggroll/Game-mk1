@@ -8,11 +8,30 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local PhysicsService = game:GetService("PhysicsService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
 
 local SpawnSystem = {}
+
+-- Soldiers share a collision group that DOESN'T collide with itself. This stops
+-- hundreds of units from shoving each other around — a big perf + look win.
+-- They still collide with the ground and any obstacles you place.
+local UNITS_GROUP = "BattleUnits"
+local collisionReady = false
+local function ensureCollisionGroup()
+	if collisionReady then
+		return
+	end
+	pcall(function()
+		PhysicsService:RegisterCollisionGroup(UNITS_GROUP)
+	end)
+	pcall(function()
+		PhysicsService:CollisionGroupSetCollidable(UNITS_GROUP, UNITS_GROUP, false)
+	end)
+	collisionReady = true
+end
 
 -- Workspace/Units holds all live soldiers at runtime. Created if missing.
 local function getUnitsFolder()
@@ -25,11 +44,14 @@ local function getUnitsFolder()
 	return folder
 end
 
--- Paint every part of a unit its team color so the two sides read clearly.
-local function colorModel(model, color)
+-- Paint every part its team color and put it in the no-self-collide group.
+local function dressModel(model, color)
 	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") and part.Name ~= "Head" then
-			part.Color = color
+		if part:IsA("BasePart") then
+			part.CollisionGroup = UNITS_GROUP
+			if part.Name ~= "Head" then
+				part.Color = color
+			end
 		end
 	end
 end
@@ -86,12 +108,13 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 			continue
 		end
 
-		local offset = formationOffset(slotIndex - 1)
+		-- Leader sits at the army's center (it'll retreat behind on its own).
+		local offset = slot.IsLeader and Vector3.zero or formationOffset(slotIndex - 1)
 
 		local model = template:Clone()
 		-- Lift slightly so they don't spawn clipped into the floor.
 		model:PivotTo(facing * CFrame.new(offset + Vector3.new(0, 3, 0)))
-		colorModel(model, teamData.Color)
+		dressModel(model, teamData.Color)
 
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		local maxHealth = stats.MaxHealth
@@ -120,6 +143,7 @@ function SpawnSystem.SpawnAllTeams()
 		return
 	end
 
+	ensureCollisionGroup()
 	local unitsFolder = getUnitsFolder()
 	for teamKey, teamData in Config.Teams do
 		spawnTeam(teamKey, teamData, assets, unitsFolder)

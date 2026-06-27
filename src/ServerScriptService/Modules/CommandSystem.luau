@@ -1,16 +1,18 @@
 --[[
 	CommandSystem  (the Leader's brain)
 	-----------------------------------
-	Each team has a Leader. Instead of every soldier deciding everything alone,
-	the Leader sets ONE plan per team each tick and the soldiers follow it:
+	Once per tick this builds ONE plan per team and a shared snapshot the other
+	systems reuse — so nothing rebuilds enemy/ally lists per unit (the old lag).
 
-	  • Order       "Advance" = march in formation, "Engage" = fight
-	  • RallyPoint  where the team is heading (the enemy's center of mass)
-	  • FocusTarget the enemy to gang up on (focus fire)
+	Each team's state holds:
+	  • Order        "Advance" (march in formation) or "Engage" (fight)
+	  • RallyPoint   where the army is heading
+	  • FocusTarget  the enemy to gang up on (focus fire)
+	  • Leader       the team's commander (or nil if it has fallen)
+	  • Allies/Enemies, AllyCenter/EnemyCenter — cached for this tick
 
-	TargetingSystem and CombatSystem read this team state to act as a group.
-	This is also the seam where a PLAYER will later take over the Leader: a
-	human just sets Order / RallyPoint / FocusTarget instead of this AI.
+	This is also the seam a PLAYER will later plug into: a human just sets
+	Order / RallyPoint / FocusTarget instead of this AI.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,7 +21,6 @@ local UnitManager = require(script.Parent.UnitManager)
 
 local CommandSystem = {}
 
--- [teamKey] = { Order, RallyPoint, FocusTarget, Leader }
 CommandSystem.TeamStates = {}
 
 local function averagePosition(units)
@@ -33,20 +34,17 @@ local function averagePosition(units)
 	return sum / #units
 end
 
--- Pick who the whole team should focus: the enemy Leader if we can see one,
--- otherwise the closest, weakest enemy near our front line.
+-- Who the whole team focuses: enemy Leader if visible, else the closest,
+-- weakest enemy near our front (finish off the easy kills first).
 local function chooseFocus(enemies, allyCenter)
 	for _, e in enemies do
 		if e.IsLeader then
 			return e
 		end
 	end
-
 	local best, bestScore = nil, math.huge
 	for _, e in enemies do
-		local dist = (e.Root.Position - allyCenter).Magnitude
-		-- lower = better: close AND low-health enemies get finished first
-		local score = dist + e.Humanoid.Health
+		local score = (e.Root.Position - allyCenter).Magnitude + e.Humanoid.Health
 		if score < bestScore then
 			bestScore = score
 			best = e
@@ -59,8 +57,20 @@ function CommandSystem.Reset()
 	CommandSystem.TeamStates = {}
 end
 
--- Recompute every team's plan. Called once per tick before units act.
 function CommandSystem.Update()
+	-- Single snapshot of living units, bucketed by team, for the whole tick.
+	local byTeam = {}
+	for _, unit in UnitManager.Units do
+		if unit.Alive then
+			local list = byTeam[unit.Team]
+			if not list then
+				list = {}
+				byTeam[unit.Team] = list
+			end
+			table.insert(list, unit)
+		end
+	end
+
 	for teamKey in Config.Teams do
 		local state = CommandSystem.TeamStates[teamKey]
 		if not state then
@@ -68,27 +78,41 @@ function CommandSystem.Update()
 			CommandSystem.TeamStates[teamKey] = state
 		end
 
-		local allies = UnitManager.GetTeamUnits(teamKey)
-		local enemies = UnitManager.GetEnemyUnits(teamKey)
-		state.Leader = UnitManager.GetLeader(teamKey)
+		local allies = byTeam[teamKey] or {}
+		local enemies = {}
+		for otherTeam, list in byTeam do
+			if otherTeam ~= teamKey then
+				table.move(list, 1, #list, #enemies + 1, enemies)
+			end
+		end
+
+		state.Allies = allies
+		state.Enemies = enemies
+
+		state.Leader = nil
+		for _, unit in allies do
+			if unit.IsLeader then
+				state.Leader = unit
+				break
+			end
+		end
 
 		if #allies == 0 or #enemies == 0 then
 			state.Order = "Hold"
 			state.FocusTarget = nil
-			continue
+			state.AllyCenter = nil
+			state.EnemyCenter = nil
+		else
+			local allyCenter = averagePosition(allies)
+			local enemyCenter = averagePosition(enemies)
+			state.AllyCenter = allyCenter
+			state.EnemyCenter = enemyCenter
+			state.RallyPoint = enemyCenter
+
+			local frontGap = (enemyCenter - allyCenter).Magnitude
+			state.Order = (frontGap > Config.Command.EngageRange) and "Advance" or "Engage"
+			state.FocusTarget = chooseFocus(enemies, allyCenter)
 		end
-
-		local allyCenter = averagePosition(allies)
-		local enemyCenter = averagePosition(enemies)
-
-		-- March toward the enemy mass; that's the rally point.
-		state.RallyPoint = enemyCenter
-
-		-- Hold formation and advance until the lines are close, then commit.
-		local frontGap = (enemyCenter - allyCenter).Magnitude
-		state.Order = (frontGap > Config.Command.EngageRange) and "Advance" or "Engage"
-
-		state.FocusTarget = chooseFocus(enemies, allyCenter)
 	end
 end
 

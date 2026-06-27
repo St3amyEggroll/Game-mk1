@@ -1,45 +1,93 @@
 --[[
 	CombatSystem
 	------------
-	One unit's "turn", now aware of the team's order:
+	One unit's "turn", driven by the team's order:
 
-	  • Advance — march to your slot in the formation (RallyPoint + your offset),
-	    so the army moves as a coordinated block instead of a loose blob.
-	  • Engage  — close on your target, face it, and swing on cooldown.
+	  • Leaders  hang back behind the army and direct; they only fight in
+	    self-defense if an enemy reaches them.
+	  • Soldiers Advance to their formation slot, then Engage: close on the
+	    target, face it, and swing on cooldown.
 
-	Extra smarts layered in:
-	  • Separation  — gently push off allies so units don't stack on one spot.
-	  • Facing      — turn to look at whoever you're hitting.
-	  • Morale      — hit harder near a living Leader, weaker with none.
+	Movement is steered by two cheap forces so it reads as smart, not a blob:
+	  • Separation     — push off crowding allies (no more shoving piles).
+	  • ObstacleAvoid  — raycast ahead and veer around walls/cover. This is what
+	    makes the army ready for the obstacles you're adding.
+
+	Plus morale: hit harder near a living Leader, weaker if the Leader is dead.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
-local UnitManager = require(script.Parent.UnitManager)
 
 local CombatSystem = {}
 
--- Sum a small push-away from any allies crowding this unit.
-local function separation(unit)
+-- Raycasts for obstacle avoidance ignore the soldiers themselves.
+local avoidParams = RaycastParams.new()
+avoidParams.FilterType = Enum.RaycastFilterType.Exclude
+avoidParams.FilterDescendantsInstances = {}
+
+-- Call at the start of each battle so avoidance ignores live units.
+function CombatSystem.RefreshObstacleFilter()
+	local unitsFolder = Workspace:FindFirstChild("Units")
+	avoidParams.FilterDescendantsInstances = unitsFolder and { unitsFolder } or {}
+end
+
+-- Push away from any allies crowding this unit (uses the tick's cached list).
+local function separation(unit, allies)
 	local push = Vector3.zero
 	local pos = unit.Root.Position
 	local radius = Config.Command.SeparationRadius
-	for _, ally in UnitManager.GetAllies(unit) do
-		local offset = pos - ally.Root.Position
-		local dist = offset.Magnitude
-		if dist > 0 and dist < radius then
-			push += offset.Unit * (radius - dist)
+	for _, ally in allies do
+		if ally ~= unit then
+			local offset = pos - ally.Root.Position
+			local dist = offset.Magnitude
+			if dist > 0 and dist < radius then
+				push += offset.Unit * (radius - dist)
+			end
 		end
 	end
 	return push
 end
 
--- Walk toward a goal, nudged apart from crowding allies.
-local function moveTo(unit, goal)
-	unit.Humanoid:MoveTo(goal + separation(unit))
+-- Look ahead; if something's in the way, steer toward the clearer side.
+local function obstacleAvoid(unit, desiredDir)
+	if desiredDir.Magnitude < 0.01 then
+		return Vector3.zero
+	end
+	local dir = desiredDir.Unit
+	local origin = unit.Root.Position
+	local look = Config.Command.ObstacleLookAhead
+
+	if not Workspace:Raycast(origin, dir * look, avoidParams) then
+		return Vector3.zero -- clear path
+	end
+
+	-- Blocked ahead: test left/right and veer to whichever is open.
+	local left = Vector3.new(-dir.Z, 0, dir.X)
+	local leftBlocked = Workspace:Raycast(origin, left * look, avoidParams)
+	local rightBlocked = Workspace:Raycast(origin, -left * look, avoidParams)
+
+	local steer
+	if leftBlocked and rightBlocked then
+		steer = -dir -- boxed in; back off
+	elseif leftBlocked then
+		steer = -left
+	else
+		steer = left
+	end
+	return steer * Config.Command.ObstacleAvoidStrength
 end
 
--- Snap to face a point (used while attacking, when we're standing still).
+-- Walk toward a goal, nudged by separation + obstacle avoidance.
+local function moveTo(unit, goal, allies)
+	local desired = goal - unit.Root.Position
+	local steer = separation(unit, allies) + obstacleAvoid(unit, desired)
+	unit.Humanoid:MoveTo(goal + steer)
+end
+
+-- Snap to face a point (used while standing and swinging).
 local function faceToward(unit, targetPos)
 	local pos = unit.Root.Position
 	local look = Vector3.new(targetPos.X, pos.Y, targetPos.Z)
@@ -48,13 +96,12 @@ local function faceToward(unit, targetPos)
 	end
 end
 
--- Damage after morale: bonus near a living Leader, penalty if leaderless.
+-- Damage after morale.
 local function attackDamage(unit, state)
 	local damage = unit.Stats.AttackDamage
 	local leader = state and state.Leader
 	if leader and leader.Alive then
-		local dist = (leader.Root.Position - unit.Root.Position).Magnitude
-		if dist <= Config.Command.MoraleRange then
+		if (leader.Root.Position - unit.Root.Position).Magnitude <= Config.Command.MoraleRange then
 			damage *= Config.Command.MoraleDamageBonus
 		end
 	elseif Config.Leader.Enabled and not leader then
@@ -63,35 +110,62 @@ local function attackDamage(unit, state)
 	return damage
 end
 
+local function swingAt(unit, target, now, state)
+	faceToward(unit, target.Root.Position)
+	unit.Humanoid:Move(Vector3.zero)
+	if now - unit.LastAttack >= unit.Stats.AttackCooldown then
+		unit.LastAttack = now
+		target.Humanoid:TakeDamage(attackDamage(unit, state))
+	end
+end
+
+-- Leader: stay behind the army, only swing if an enemy is right on top of you.
+local function leaderAct(unit, now, state, allies)
+	if state and state.AllyCenter and state.EnemyCenter then
+		local back = state.AllyCenter - state.EnemyCenter
+		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
+		moveTo(unit, state.AllyCenter + back * Config.Leader.Standoff, allies)
+	end
+
+	-- Self-defense: nearest enemy within reach only.
+	local nearest, nearestDist = nil, math.huge
+	for _, enemy in (state and state.Enemies) or {} do
+		local dist = (enemy.Root.Position - unit.Root.Position).Magnitude
+		if dist < nearestDist then
+			nearestDist = dist
+			nearest = enemy
+		end
+	end
+	if nearest and nearestDist <= unit.Stats.AttackRange then
+		swingAt(unit, nearest, now, state)
+	end
+end
+
 function CombatSystem.Act(unit, now, state)
-	-- ADVANCE: hold formation and march toward the rally point as a group.
-	if state and state.Order == "Advance" and state.RallyPoint then
-		moveTo(unit, state.RallyPoint + unit.FormationOffset)
+	local allies = (state and state.Allies) or {}
+
+	if unit.IsLeader then
+		leaderAct(unit, now, state, allies)
 		return
 	end
 
-	-- ENGAGE (or no orders): fight your target.
+	-- ADVANCE: march to your formation slot as a group.
+	if state and state.Order == "Advance" and state.RallyPoint then
+		moveTo(unit, state.RallyPoint + unit.FormationOffset, allies)
+		return
+	end
+
+	-- ENGAGE: fight your target.
 	local target = unit.Target
 	if not target or not target.Alive then
 		return
 	end
 
-	local pos = unit.Root.Position
-	local targetPos = target.Root.Position
-	local dist = (targetPos - pos).Magnitude
-	local stats = unit.Stats
-
-	if dist > stats.AttackRange then
-		-- Out of range: close the distance.
-		moveTo(unit, targetPos)
+	local dist = (target.Root.Position - unit.Root.Position).Magnitude
+	if dist > unit.Stats.AttackRange then
+		moveTo(unit, target.Root.Position, allies)
 	else
-		-- In range: stop, face the enemy, and swing on cooldown.
-		unit.Humanoid:Move(Vector3.zero)
-		faceToward(unit, targetPos)
-		if now - unit.LastAttack >= stats.AttackCooldown then
-			unit.LastAttack = now
-			target.Humanoid:TakeDamage(attackDamage(unit, state))
-		end
+		swingAt(unit, target, now, state)
 	end
 end
 

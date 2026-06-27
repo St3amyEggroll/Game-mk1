@@ -48,16 +48,17 @@ Config.UnitTypes = {
 -- What each team is made of (NOT counting the Leader, who is added on top).
 -- Add more entries / bump Count to grow the army.
 Config.Composition = {
-	{ Type = "Melee", Count = 8 },
+	{ Type = "Melee", Count = 12 },
 }
 
--- The Leader directs the team. It's a beefier, scaled-up unit with a glow.
+-- The Leader directs the team from the back. Beefy, scaled-up, glowing.
 -- For now the Leader is AI-controlled; later a player can take its place.
 Config.Leader = {
 	Enabled = true,
 	HealthMultiplier = 3, -- leader has 3x a normal soldier's health
 	Scale = 1.5, -- visually bigger so you can spot it
 	GlowColor = Color3.fromRGB(255, 230, 120), -- highlight tint
+	Standoff = 20, -- studs the Leader hangs back behind its army's center
 }
 
 -- Army-level behavior the Leader coordinates.
@@ -68,8 +69,8 @@ Config.Command = {
 	-- within this range; otherwise it fights whoever's nearest.
 	FocusRange = 55,
 	-- Shape of the marching formation.
-	FormationSpacing = 6, -- studs between soldiers
-	FormationColumns = 5, -- soldiers per row
+	FormationSpacing = 5, -- studs between soldiers
+	FormationColumns = 6, -- soldiers per row
 
 	-- Morale: soldiers fighting near a living Leader hit harder. If the Leader
 	-- dies, the whole army loses its edge.
@@ -79,6 +80,11 @@ Config.Command = {
 
 	-- How hard units avoid piling on top of each other while moving.
 	SeparationRadius = 4,
+
+	-- Obstacle avoidance: units cast a short ray ahead and steer around walls
+	-- and cover. This is what makes them ready for the obstacles you'll add.
+	ObstacleLookAhead = 10, -- studs to look ahead for an obstacle
+	ObstacleAvoidStrength = 8, -- how hard to veer around it
 }
 
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.

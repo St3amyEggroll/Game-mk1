@@ -34,11 +34,12 @@ function TargetingSystem.UpdateTarget(unit, state)
 		return
 	end
 
-	-- 3. Fall back to the nearest enemy.
+	-- 3. Fall back to the nearest enemy (from the tick's cached enemy list).
 	unit.Target = nil
 	local nearestDist = math.huge
 	local pos = unit.Root.Position
-	for _, enemy in UnitManager.GetEnemies(unit) do
+	local enemies = (state and state.Enemies) or UnitManager.GetEnemies(unit)
+	for _, enemy in enemies do
 		local dist = (enemy.Root.Position - pos).Magnitude
 		if dist < nearestDist then
 			nearestDist = dist
