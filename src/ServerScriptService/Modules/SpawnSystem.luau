@@ -156,6 +156,64 @@ local function buildRoster()
 	return roster
 end
 
+local function roleForType(unitType)
+	if unitType == "Cavalry" then
+		return "Cavalry"
+	elseif unitType == "Archer" then
+		return "Archer"
+	elseif unitType == "Scout" then
+		return "Scout"
+	end
+	return "Main"
+end
+
+local function iconFor(slot)
+	if slot.IsLeader then
+		return Config.Icons.Leader
+	end
+	return Config.Icons[slot.Type]
+end
+
+-- Build a single soldier from a slot at a given pivot. Shared by initial spawn
+-- and base reinforcements.
+local function buildUnit(teamKey, teamData, slot, pivot, offset, assets, unitsFolder)
+	local stats = Config.UnitTypes[slot.Type]
+	-- Use the type's rig; fall back to MeleeUnit if it isn't built yet.
+	local template = assets:FindFirstChild(stats.RigName) or assets:FindFirstChild("MeleeUnit")
+	if not template then
+		warn(("[SpawnSystem] No rig '%s' (and no MeleeUnit fallback) in ReplicatedStorage/Assets."):format(stats.RigName))
+		return nil
+	end
+
+	local model = template:Clone()
+	model:PivotTo(pivot)
+	dressModel(model, teamData.Color)
+	if slot.Type == "Cavalry" then
+		attachHorse(model)
+	end
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	local maxHealth = stats.MaxHealth
+	if slot.IsLeader then
+		maxHealth = math.floor(stats.MaxHealth * Config.Leader.HealthMultiplier)
+		model:ScaleTo(Config.Leader.Scale)
+		addGlow(model, Config.Leader.GlowColor)
+	end
+	humanoid.MaxHealth = maxHealth
+	humanoid.Health = maxHealth
+	humanoid.WalkSpeed = stats.WalkSpeed
+
+	model.Parent = unitsFolder
+	HealthBar.Attach(model, humanoid, slot.IsLeader, iconFor(slot))
+
+	local unit = UnitManager.Register(model, teamKey, slot.Type)
+	unit.IsLeader = slot.IsLeader
+	unit.Role = slot.Role
+	unit.GuardIndex = slot.GuardIndex or 0
+	unit.FormationOffset = offset or Vector3.zero
+	return unit
+end
+
 -- Spawn one team's Leader + soldiers.
 local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 	local marker = Workspace:FindFirstChild(teamData.SpawnMarker)
@@ -167,48 +225,23 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 	-- Face the army toward the middle of the map.
 	local facing = CFrame.lookAt(marker.Position, Vector3.new(0, marker.Position.Y, 0))
 
-	local roster = buildRoster()
-	for slotIndex, slot in roster do
-		local stats = Config.UnitTypes[slot.Type]
-		-- Use the type's rig; fall back to MeleeUnit so a missing rig (e.g. you
-		-- haven't built CavalryUnit yet) doesn't silently shrink the army.
-		local template = assets:FindFirstChild(stats.RigName) or assets:FindFirstChild("MeleeUnit")
-		if not template then
-			warn(("[SpawnSystem] No rig '%s' (and no MeleeUnit fallback) in ReplicatedStorage/Assets."):format(stats.RigName))
-			continue
-		end
-
-		-- Leader sits at the army's center (it'll retreat behind on its own).
+	for slotIndex, slot in buildRoster() do
 		local offset = slot.IsLeader and Vector3.zero or formationOffset(slotIndex - 1)
-
-		local model = template:Clone()
-		-- Lift slightly so they don't spawn clipped into the floor.
-		model:PivotTo(facing * CFrame.new(offset + Vector3.new(0, 3, 0)))
-		dressModel(model, teamData.Color)
-		if slot.Type == "Cavalry" then
-			attachHorse(model)
-		end
-
-		local humanoid = model:FindFirstChildOfClass("Humanoid")
-		local maxHealth = stats.MaxHealth
-		if slot.IsLeader then
-			maxHealth = math.floor(stats.MaxHealth * Config.Leader.HealthMultiplier)
-			model:ScaleTo(Config.Leader.Scale)
-			addGlow(model, Config.Leader.GlowColor)
-		end
-		humanoid.MaxHealth = maxHealth
-		humanoid.Health = maxHealth
-		humanoid.WalkSpeed = stats.WalkSpeed
-
-		model.Parent = unitsFolder
-		HealthBar.Attach(model, humanoid, slot.IsLeader)
-
-		local unit = UnitManager.Register(model, teamKey, slot.Type)
-		unit.IsLeader = slot.IsLeader
-		unit.Role = slot.Role
-		unit.GuardIndex = slot.GuardIndex or 0
-		unit.FormationOffset = offset
+		local pivot = facing * CFrame.new(offset + Vector3.new(0, 3, 0))
+		buildUnit(teamKey, teamData, slot, pivot, offset, assets, unitsFolder)
 	end
+end
+
+-- Spawn a single reinforcement of a type at a position (used by bases).
+function SpawnSystem.SpawnOne(teamKey, unitType, position)
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if not assets then
+		return nil
+	end
+	ensureCollisionGroup()
+	local slot = { Type = unitType, IsLeader = false, Role = roleForType(unitType) }
+	local pivot = CFrame.new(position + Vector3.new(0, 3, 0))
+	return buildUnit(teamKey, Config.Teams[teamKey], slot, pivot, Vector3.zero, assets, getUnitsFolder())
 end
 
 -- Spawn both armies.

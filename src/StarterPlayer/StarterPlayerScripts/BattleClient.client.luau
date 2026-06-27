@@ -175,6 +175,26 @@ signals.OnClientEvent:Connect(function(payload)
 		else
 			addFeedLine(("A %s soldier fell"):format(name), teamColor(payload.team), false)
 		end
+	elseif payload.kind == "flare" then
+		local spotter = Config.Teams[payload.by] and Config.Teams[payload.by].Name or "Scouts"
+		local enemy = Config.Teams[payload.baseTeam] and Config.Teams[payload.baseTeam].Name or "enemy"
+		addFeedLine(("⚑ %s spotted the %s base!"):format(spotter, enemy), teamColor(payload.by), true)
+		if typeof(payload.pos) == "Vector3" then
+			-- A flare beam shoots up from the discovered base.
+			local beam = Instance.new("Part")
+			beam.Anchored = true
+			beam.CanCollide = false
+			beam.CanQuery = false
+			beam.Material = Enum.Material.Neon
+			beam.Color = teamColor(payload.baseTeam)
+			beam.Size = Vector3.new(2, 200, 2)
+			beam.CFrame = CFrame.new(payload.pos + Vector3.new(0, 100, 0))
+			beam.Parent = Workspace
+			game:GetService("Debris"):AddItem(beam, 2.5)
+		end
+	elseif payload.kind == "baseDown" then
+		local name = Config.Teams[payload.team] and Config.Teams[payload.team].Name or "A"
+		addFeedLine(("🏰 %s base DESTROYED!"):format(name), teamColor(payload.team), true)
 	elseif payload.kind == "result" then
 		if payload.winner then
 			local team = Config.Teams[payload.winner]

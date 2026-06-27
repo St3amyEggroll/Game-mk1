@@ -226,6 +226,25 @@ Config.HealthBars = {
 	Enabled = true,
 }
 
+-- Icon shown above each unit so you can read the battle from above.
+Config.Icons = {
+	Melee = "⚔️",
+	Spearman = "🔱",
+	Archer = "🏹",
+	Cavalry = "🐎",
+	Scout = "🔭",
+	Leader = "👑",
+}
+
+-- Bases: each team has one. It respawns reinforcements while it stands; destroy
+-- it and that team can't replace losses. Auto-built behind each spawn marker.
+Config.Base = {
+	Health = 900,
+	RespawnInterval = 1.6, -- seconds between reinforcements from a living base
+	SetbackFromSpawn = 22, -- studs the base sits behind the spawn marker
+	Icon = "🏰",
+}
+
 -- Fog of war. Units only know what they (or a teammate) can see; sightings are
 -- shared across the team and remembered as "last-known" positions after sight
 -- is lost. Vision is blocked by walls/obstacles (not by other units).

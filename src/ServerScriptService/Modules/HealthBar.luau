@@ -15,7 +15,7 @@ local function colorForFraction(fraction)
 	return Color3.fromRGB(math.floor(255 * (1 - fraction)), math.floor(200 * fraction), 40)
 end
 
-function HealthBar.Attach(model, humanoid, isLeader)
+function HealthBar.Attach(model, humanoid, isLeader, icon)
 	if not Config.HealthBars.Enabled then
 		return
 	end
@@ -25,16 +25,30 @@ function HealthBar.Attach(model, humanoid, isLeader)
 		return
 	end
 
+	local barWidth = isLeader and 70 or 48
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "HealthBar"
-	gui.Size = UDim2.fromOffset(isLeader and 70 or 48, isLeader and 9 or 6)
-	gui.StudsOffset = Vector3.new(0, isLeader and 3.5 or 2.5, 0)
+	gui.Size = UDim2.fromOffset(barWidth, (isLeader and 9 or 6) + 22)
+	gui.StudsOffset = Vector3.new(0, isLeader and 3.8 or 2.8, 0)
 	gui.AlwaysOnTop = true
 	gui.Adornee = head
 	gui.Parent = head
 
+	-- Type icon above the bar.
+	if icon then
+		local iconLabel = Instance.new("TextLabel")
+		iconLabel.Size = UDim2.new(1, 0, 0, isLeader and 22 or 18)
+		iconLabel.Position = UDim2.fromOffset(0, 0)
+		iconLabel.BackgroundTransparency = 1
+		iconLabel.Font = Enum.Font.GothamBold
+		iconLabel.TextScaled = true
+		iconLabel.Text = icon
+		iconLabel.Parent = gui
+	end
+
 	local background = Instance.new("Frame")
-	background.Size = UDim2.fromScale(1, 1)
+	background.Size = UDim2.new(1, 0, 0, isLeader and 9 or 6)
+	background.Position = UDim2.new(0, 0, 1, isLeader and -9 or -6)
 	background.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 	background.BorderSizePixel = 0
 	background.Parent = gui

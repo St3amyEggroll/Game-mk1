@@ -19,6 +19,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local NavigationSystem = require(script.Parent.NavigationSystem)
 local HazardSystem = require(script.Parent.HazardSystem)
 local EffectsSystem = require(script.Parent.EffectsSystem)
+local BaseSystem = require(script.Parent.BaseSystem)
 
 local CombatSystem = {}
 
@@ -147,6 +148,29 @@ local function fightTarget(unit, target, now, state, allies)
 	end
 end
 
+-- No enemy unit to fight: march on the discovered enemy base and tear it down.
+local function assault(unit, state, allies, now)
+	local base = state and state.AssaultBase
+	if not base or not base.Alive then
+		if state and state.EnemyCenter then
+			moveTo(unit, state.EnemyCenter, allies, now)
+		end
+		return
+	end
+	local pos = unit.Root.Position
+	local flat = Vector3.new(base.Position.X - pos.X, 0, base.Position.Z - pos.Z)
+	if flat.Magnitude <= unit.Stats.AttackRange + 9 then
+		unit.Humanoid:Move(Vector3.zero)
+		faceToward(unit, base.Position)
+		if now - unit.LastAttack >= unit.Stats.AttackCooldown then
+			unit.LastAttack = now
+			BaseSystem.Damage(base, unit.Stats.AttackDamage)
+		end
+	else
+		moveTo(unit, base.Position, allies, now)
+	end
+end
+
 -- ---- per-role behavior -----------------------------------------------------
 
 local function leaderAct(unit, now, state, allies)
@@ -199,13 +223,11 @@ local function flankAct(unit, now, state, allies)
 			swingAt(unit, unit.Target, now, state)
 			return
 		end
-		local drive = unit.Root.Position
 		if state.FocusTarget and state.FocusTarget.Alive then
-			drive = believedPos(state, state.FocusTarget)
-		elseif state.FlankPoint then
-			drive = state.FlankPoint
+			moveTo(unit, believedPos(state, state.FocusTarget), allies, now)
+		else
+			assault(unit, state, allies, now)
 		end
-		moveTo(unit, drive, allies, now)
 	else
 		local rally = state.RallyPoint or state.AllyCenter or unit.Root.Position
 		moveTo(unit, rally + unit.FormationOffset, allies, now)
@@ -222,9 +244,7 @@ local function rangedAct(unit, now, state, allies)
 
 	local target = unit.Target
 	if not target or not target.Alive then
-		if state and state.EnemyCenter then
-			moveTo(unit, state.EnemyCenter, allies, now)
-		end
+		assault(unit, state, allies, now) -- no one to shoot: help take the base
 		return
 	end
 
@@ -279,9 +299,7 @@ local function cavalryAct(unit, now, state, allies)
 	unit.WantsSprint = true -- full gallop
 	local target = unit.Target
 	if not target or not target.Alive then
-		if state and state.EnemyCenter then
-			moveTo(unit, state.EnemyCenter, allies, now)
-		end
+		assault(unit, state, allies, now) -- no one to charge: ride at the base
 		return
 	end
 
@@ -351,7 +369,11 @@ function CombatSystem.Act(unit, now, state)
 		end
 	end
 
-	fightTarget(unit, unit.Target, now, state, allies)
+	if unit.Target then
+		fightTarget(unit, unit.Target, now, state, allies)
+	else
+		assault(unit, state, allies, now)
+	end
 end
 
 return CombatSystem

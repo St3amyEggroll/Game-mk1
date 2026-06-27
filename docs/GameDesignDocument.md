@@ -93,10 +93,13 @@ Two optimization habits are baked in from day one:
   last-known-position memory, vision blocked by walls, ambush bonus, scouts'
   long sight, spectator fog toggle (V). VisionSystem feeds CommandSystem +
   TargetingSystem; if a team sees nothing it advances on the nearest enemy spawn.
-- **Phase 3 — bases & respawn**: each team respawns from a base; destroy all
-  enemy bases + units to win; leader sends scouts to find bases; signal flares.
+- **Phase 3 — bases & respawn** ✅: each team has a base that trickles out
+  reinforcements while it stands; bases are discovered by sight (flare on first
+  contact); units assault the discovered enemy base when no enemies are in view;
+  a team is out only when its base is destroyed AND its units are dead.
+  Unit icons above heads (read the battle from above).
 - **Phase 4 — structures & strategy**: barracks/watchtower/walls/gates/depot,
-  leader objectives (rush/turtle/raid), squad banners.
+  explicit leader objectives (rush/turtle/raid), dedicated scout-dispatch.
 
 ### Deferred AI
 - Commit reserves (a held-back squad sent to a breaking flank).

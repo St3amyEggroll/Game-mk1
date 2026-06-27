@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
 local VisionSystem = require(script.Parent.VisionSystem)
+local BaseSystem = require(script.Parent.BaseSystem)
 
 local CommandSystem = {}
 
@@ -150,7 +151,12 @@ function CommandSystem.Update()
 
 		local allyCenter = averagePosition(allies)
 
-		-- Enemy center + strength from what we can see (else head for their spawn).
+		-- The enemy base we're assaulting (nearest one we've discovered).
+		local assaultBase = BaseSystem.GetDiscoveredEnemyBase(teamKey, allyCenter)
+		state.AssaultBase = assaultBase
+
+		-- Enemy center + strength from what we can see. With nobody in sight,
+		-- march on the discovered base, else toward the nearest enemy spawn.
 		local enemyCenter, enemyHealth
 		if #knownList > 0 then
 			local sum = Vector3.zero
@@ -161,7 +167,7 @@ function CommandSystem.Update()
 			end
 			enemyCenter = sum / #knownList
 		else
-			enemyCenter = nearestEnemySpawn(teamKey, allyCenter)
+			enemyCenter = (assaultBase and assaultBase.Position) or nearestEnemySpawn(teamKey, allyCenter)
 			enemyHealth = 0
 		end
 

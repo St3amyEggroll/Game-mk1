@@ -108,6 +108,7 @@ local Modules = ServerScriptService:WaitForChild("Modules")
 local UnitManager = require(Modules.UnitManager)
 local SpawnSystem = require(Modules.SpawnSystem)
 local VisionSystem = require(Modules.VisionSystem)
+local BaseSystem = require(Modules.BaseSystem)
 local CommandSystem = require(Modules.CommandSystem)
 local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
@@ -135,13 +136,16 @@ local function countsChanged(a, b)
 	return false
 end
 
--- Returns: "running", or a winning team key, or "draw".
+-- Returns: "running", a winning team key, or "draw". A team is still in play
+-- while it has living units OR a standing base (which keeps respawning).
 local function battleStatus()
-	local teamsAlive = UnitManager.TeamsAlive()
+	local counts = teamCounts()
 	local count, lastTeam = 0, nil
-	for teamKey in teamsAlive do
-		count += 1
-		lastTeam = teamKey
+	for teamKey in Config.Teams do
+		if (counts[teamKey] or 0) > 0 or BaseSystem.IsBaseAlive(teamKey) then
+			count += 1
+			lastTeam = teamKey
+		end
 	end
 
 	if count > 1 then
@@ -157,7 +161,9 @@ local function runOneBattle()
 	UnitManager.Clear()
 	VisionSystem.Reset()
 	CommandSystem.Reset()
+	BaseSystem.Reset()
 	SpawnSystem.SpawnAllTeams()
+	BaseSystem.SpawnBases()
 	CombatSystem.RefreshObstacleFilter()
 
 	if #UnitManager.Units == 0 then
@@ -173,9 +179,10 @@ local function runOneBattle()
 	while true do
 		local now = os.clock()
 
-		-- Refresh hazards + vision (fog of war), then leaders plan, then soldiers act.
+		-- Refresh hazards + vision, update bases (discovery/respawn), then plan + act.
 		HazardSystem.Refresh()
 		VisionSystem.Update(now)
+		BaseSystem.Update(now)
 		CommandSystem.Update()
 
 		for _, unit in UnitManager.Units do
