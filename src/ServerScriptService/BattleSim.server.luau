@@ -14,9 +14,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Players = game:GetService("Players")
 
--- Spectator sim: don't spawn player avatars into the battlefield (they'd get
--- shoved around and confuse pathfinding). The client runs a scripted camera.
+-- Spectator sim: no player avatars on the battlefield (they'd fall into the
+-- void / shove units / confuse pathfinding). The client runs a scripted camera.
 Players.CharacterAutoLoads = false
+
+local function makeSpectator(plr)
+	-- Kill any character that already loaded, and any that sneaks in later.
+	if plr.Character then
+		plr.Character:Destroy()
+	end
+	plr.CharacterAdded:Connect(function(character)
+		character:Destroy()
+	end)
+end
+
+for _, plr in Players:GetPlayers() do
+	makeSpectator(plr)
+end
+Players.PlayerAdded:Connect(makeSpectator)
 
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Modules = ServerScriptService:WaitForChild("Modules")

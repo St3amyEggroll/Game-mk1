@@ -271,7 +271,11 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
-RunService.RenderStepped:Connect(function(dt)
+-- Bind AFTER the default camera each frame and re-assert Scriptable, so the
+-- built-in camera can never steal control (which would leave us in the void).
+local function updateCamera(dt)
+	camera.CameraType = Enum.CameraType.Scriptable
+
 	if followMode then
 		local center, spread = battleFocus()
 		if center then
@@ -301,4 +305,6 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 
 	camera.CFrame = CFrame.new(camPos) * rot
-end)
+end
+
+RunService:BindToRenderStep("SpectatorCamera", Enum.RenderPriority.Camera.Value + 1, updateCamera)
