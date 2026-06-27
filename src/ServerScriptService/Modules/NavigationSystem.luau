@@ -41,6 +41,12 @@ local function pathIsClear(origin, goal)
 	return Workspace:Raycast(origin + up, (goal - origin), sightParams) == nil
 end
 
+-- Public: clear line of sight between two points (ignores soldiers). Used by
+-- archers (don't shoot through walls) and the fog-of-war system.
+function NavigationSystem.HasLineOfSight(fromPos, toPos)
+	return pathIsClear(fromPos, toPos)
+end
+
 -- Kick off a throttled, non-blocking path recompute for this unit.
 local function requestPath(unit, goal, now)
 	local nav = unit.Nav

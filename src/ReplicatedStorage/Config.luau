@@ -31,33 +31,63 @@ Config.Teams = {
 -- Stat block for each kind of soldier. RigName must match a Model you put
 -- inside ReplicatedStorage/Assets. Ranged is defined now but not used until
 -- Milestone 3 — you only need to build the MeleeUnit rig for now.
+-- Every RigName falls back to MeleeUnit if you haven't built that rig yet, so
+-- new unit types still spawn (they'll just look like infantry until you make a
+-- distinct rig). WalkSpeed is the BASE speed; sprinting multiplies it (Stamina).
+-- SightRange is used by the fog-of-war system (Phase 2).
 Config.UnitTypes = {
 	Melee = {
 		RigName = "MeleeUnit",
 		MaxHealth = 100,
 		WalkSpeed = 16,
-		AttackRange = 6, -- studs; has to get right up close
+		AttackRange = 6, -- has to get right up close
 		AttackDamage = 18,
-		AttackCooldown = 1.0, -- seconds between swings
-		Priority = 1, -- how juicy a target this is (healers/artillery > grunts)
+		AttackCooldown = 1.0,
+		Priority = 1,
+		SightRange = 40,
 	},
-	Ranged = {
-		RigName = "RangedUnit",
-		MaxHealth = 70,
+	Spearman = {
+		RigName = "SpearUnit",
+		MaxHealth = 110,
+		WalkSpeed = 15,
+		AttackRange = 7, -- longer reach than a sword
+		AttackDamage = 16,
+		AttackCooldown = 1.1,
+		Priority = 1,
+		SightRange = 40,
+		BonusVs = { Cavalry = 2.5 }, -- anti-cavalry: shreds horses
+	},
+	Archer = {
+		RigName = "ArcherUnit",
+		MaxHealth = 60,
 		WalkSpeed = 14,
-		AttackRange = 60,
-		AttackDamage = 10,
-		AttackCooldown = 1.5,
-		Priority = 1.5, -- squishy and dangerous, worth focusing
+		AttackRange = 55, -- shoots from afar
+		MinRange = 14, -- backs away (kites) if enemies get closer than this
+		AttackDamage = 14,
+		AttackCooldown = 1.4,
+		Priority = 1.6, -- squishy and dangerous: worth focusing down
+		SightRange = 70, -- sees farther than most (Phase 2)
+		Ranged = true,
 	},
 	Cavalry = {
-		RigName = "CavalryUnit", -- build this rig; falls back to MeleeUnit if missing
+		RigName = "CavalryUnit",
 		MaxHealth = 120,
-		WalkSpeed = 30, -- fast — they charge
+		WalkSpeed = 26, -- sprint (x1.6) outruns fleeing infantry
 		AttackRange = 8, -- lance reach
 		AttackDamage = 35, -- big charge impact
 		AttackCooldown = 0.8,
 		Priority = 1,
+		SightRange = 45,
+	},
+	Scout = {
+		RigName = "ScoutUnit",
+		MaxHealth = 55,
+		WalkSpeed = 22, -- fast and mobile
+		AttackRange = 6,
+		AttackDamage = 10,
+		AttackCooldown = 1.0,
+		Priority = 1,
+		SightRange = 110, -- the longest eyes on the field (Phase 2)
 	},
 }
 
@@ -78,8 +108,11 @@ Config.Targeting = {
 -- What each team is made of (NOT counting the Leader, who is added on top).
 -- Add more entries / bump Count to grow the army.
 Config.Composition = {
-	{ Type = "Melee", Count = 20 },
-	{ Type = "Cavalry", Count = 5 },
+	{ Type = "Melee", Count = 8 },
+	{ Type = "Spearman", Count = 5 },
+	{ Type = "Archer", Count = 5 },
+	{ Type = "Cavalry", Count = 4 },
+	{ Type = "Scout", Count = 3 },
 }
 
 -- Cavalry hit-and-run: charge in, strike, then peel away and re-charge instead
@@ -87,6 +120,18 @@ Config.Composition = {
 Config.Cavalry = {
 	PeelTime = 1.2, -- seconds spent riding away after a strike
 	PeelDistance = 35, -- how far they pull back before wheeling around
+}
+
+-- Stamina (no UI). Sprinting/charging/fleeing drains it; walking regenerates.
+-- When it hits zero a unit is Exhausted and slows right down until it recovers
+-- -- so soldiers who run away eventually get caught (especially by cavalry).
+Config.Stamina = {
+	Max = 100,
+	Drain = 32, -- per second while sprinting
+	Regen = 14, -- per second while not sprinting
+	SprintMult = 1.6, -- sprint speed = BaseSpeed * this
+	ExhaustedMult = 0.55, -- exhausted speed = BaseSpeed * this
+	RecoverThreshold = 45, -- must regen to here before sprinting again
 }
 
 -- The Leader directs the team from the back. Beefy, scaled-up, glowing.

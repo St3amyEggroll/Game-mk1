@@ -72,6 +72,24 @@ local function fadeOut(model)
 	end
 end
 
+-- A quick arrow/tracer streak from a shooter to its target.
+function EffectsSystem.Tracer(fromPos, toPos, color)
+	local distance = (toPos - fromPos).Magnitude
+	if distance < 0.1 then
+		return
+	end
+	local tracer = Instance.new("Part")
+	tracer.Anchored = true
+	tracer.CanCollide = false
+	tracer.CanQuery = false
+	tracer.Material = Enum.Material.Neon
+	tracer.Color = color or Color3.fromRGB(255, 240, 180)
+	tracer.Size = Vector3.new(0.15, 0.15, distance)
+	tracer.CFrame = CFrame.lookAt((fromPos + toPos) / 2, toPos)
+	tracer.Parent = Workspace
+	game:GetService("Debris"):AddItem(tracer, 0.12)
+end
+
 function EffectsSystem.PlayDeath(unit)
 	local model = unit.Model
 	if not model or not model.Parent then

@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local NavigationSystem = require(script.Parent.NavigationSystem)
 local HazardSystem = require(script.Parent.HazardSystem)
+local EffectsSystem = require(script.Parent.EffectsSystem)
 
 local CombatSystem = {}
 
@@ -60,7 +61,7 @@ local function faceToward(unit, targetPos)
 	end
 end
 
-local function attackDamage(unit, state)
+local function attackDamage(unit, state, target)
 	local damage = unit.Stats.AttackDamage
 	local leader = state and state.Leader
 	if leader and leader.Alive then
@@ -70,19 +71,31 @@ local function attackDamage(unit, state)
 	elseif Config.Leader.Enabled and not leader then
 		damage *= Config.Command.LeaderlessDamagePenalty
 	end
+	-- Counter bonus, e.g. spearmen vs cavalry.
+	local bonus = unit.Stats.BonusVs
+	if bonus and target and bonus[target.Type] then
+		damage *= bonus[target.Type]
+	end
 	return damage
+end
+
+-- Land a hit on a target, recording the threat. Returns true if it actually
+-- fired (cooldown was ready).
+local function dealHit(unit, target, now, state)
+	if now - unit.LastAttack < unit.Stats.AttackCooldown then
+		return false
+	end
+	unit.LastAttack = now
+	target.Humanoid:TakeDamage(attackDamage(unit, state, target))
+	target.AttackedBy = unit
+	target.AttackedAt = now
+	return true
 end
 
 local function swingAt(unit, target, now, state)
 	faceToward(unit, target.Root.Position)
 	unit.Humanoid:Move(Vector3.zero)
-	if now - unit.LastAttack >= unit.Stats.AttackCooldown then
-		unit.LastAttack = now
-		target.Humanoid:TakeDamage(attackDamage(unit, state))
-		-- Record the threat so the victim can prioritize us back.
-		target.AttackedBy = unit
-		target.AttackedAt = now
-	end
+	dealHit(unit, target, now, state)
 end
 
 local function nearestEnemy(state, position)
@@ -181,6 +194,49 @@ local function flankAct(unit, now, state, allies)
 	end
 end
 
+-- Archer: shoot from afar, kite away if enemies close in, need line of sight.
+local function rangedAct(unit, now, state, allies)
+	-- Advance with the army until the lines meet.
+	if state and state.Order == "Advance" then
+		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint or state.AllyCenter
+		moveTo(unit, (rally or unit.Root.Position) + unit.FormationOffset, allies, now)
+		return
+	end
+
+	local target = unit.Target
+	if not target or not target.Alive then
+		if state and state.EnemyCenter then
+			moveTo(unit, state.EnemyCenter, allies, now)
+		end
+		return
+	end
+
+	local myPos = unit.Root.Position
+	local targetPos = target.Root.Position
+	local dist = (targetPos - myPos).Magnitude
+	local minRange = unit.Stats.MinRange or 0
+
+	if dist < minRange then
+		-- Too close: kite away (and sprint, so it costs stamina).
+		unit.WantsSprint = true
+		local away = myPos - targetPos
+		away = Vector3.new(away.X, 0, away.Z)
+		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
+		moveTo(unit, myPos + away * 20, allies, now)
+	elseif dist <= unit.Stats.AttackRange and NavigationSystem.HasLineOfSight(myPos, targetPos) then
+		-- In range with a clear shot: stop, face, fire (with a tracer).
+		unit.Humanoid:Move(Vector3.zero)
+		faceToward(unit, targetPos)
+		if dealHit(unit, target, now, state) then
+			local color = Config.Teams[unit.Team] and Config.Teams[unit.Team].Color
+			EffectsSystem.Tracer(myPos + Vector3.new(0, 1.5, 0), targetPos + Vector3.new(0, 1.5, 0), color)
+		end
+	else
+		-- Out of range or blocked: reposition for a shot.
+		moveTo(unit, targetPos, allies, now)
+	end
+end
+
 -- Cavalry: ride with the army until contact, then charge -> strike -> peel
 -- away -> wheel around and charge again, instead of grinding in the melee.
 local function cavalryAct(unit, now, state, allies)
@@ -202,7 +258,8 @@ local function cavalryAct(unit, now, state, allies)
 		unit.LastAttack = 0 -- next contact lands for full charge impact
 	end
 
-	-- Charging.
+	-- Charging — full gallop.
+	unit.WantsSprint = true
 	local target = unit.Target
 	if not target or not target.Alive then
 		if state and state.EnemyCenter then
@@ -239,17 +296,23 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
-	-- Retreat overrides roles: everyone falls back, fighting only in reach.
+	-- Retreat overrides roles: everyone flees to the rear, fighting only in reach.
 	if state and state.Order == "Retreat" then
 		if unit.Role == "Guard" then
 			guardAct(unit, now, state, allies)
 		else
+			unit.WantsSprint = true -- run for it (and tire out)
 			moveTo(unit, (state.RearPoint or state.AllyCenter) + unit.FormationOffset, allies, now)
 			local nearest, dist = nearestEnemy(state, unit.Root.Position)
 			if nearest and dist <= unit.Stats.AttackRange then
 				swingAt(unit, nearest, now, state)
 			end
 		end
+		return
+	end
+
+	if unit.Role == "Archer" then
+		rangedAct(unit, now, state, allies)
 		return
 	end
 

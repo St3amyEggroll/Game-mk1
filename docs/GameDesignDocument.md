@@ -78,7 +78,26 @@ Two optimization habits are baked in from day one:
   damage to anyone caught inside.
 - **Collisions**: units physically collide (toggle `Config.UnitsCollide`).
 
-### Deferred AI (next)
+### Unit roster (Phase 1)
+- **Melee** — line infantry.
+- **Spearman** — line infantry, **anti-cavalry** (2.5× vs Cavalry).
+- **Archer** — shoots from range, kites away when crowded, needs line of sight.
+- **Cavalry** — fast hit-and-run charger, rides a (cosmetic) horse.
+- **Scout** — fast, fragile, longest sight (used by fog-of-war in Phase 2).
+- **Stamina** (no UI): sprinting/charging/fleeing drains it; exhausted units
+  slow down, so runners get caught.
+
+### Big-feature roadmap
+- **Phase 1 — units & bodies** ✅ (archers, spearmen, scouts, stamina, cavalry+horse)
+- **Phase 2 — fog of war**: see-only-what-you-see, shared team vision,
+  last-known-position memory, vision blocked by walls, ambush bonus, scouts'
+  long sight, spectator fog toggle.
+- **Phase 3 — bases & respawn**: each team respawns from a base; destroy all
+  enemy bases + units to win; leader sends scouts to find bases; signal flares.
+- **Phase 4 — structures & strategy**: barracks/watchtower/walls/gates/depot,
+  leader objectives (rush/turtle/raid), squad banners.
+
+### Deferred AI
 - Commit reserves (a held-back squad sent to a breaking flank).
 - Automatic chokepoint funneling / high-ground seeking.
 - Feints (fake a frontal push while flanking).

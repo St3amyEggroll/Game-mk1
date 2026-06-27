@@ -49,6 +49,10 @@ function UnitManager.Register(model, teamKey, unitType)
 		CavalryPhase = "Charge", -- "Charge" | "Peel", for hit-and-run cavalry
 		PeelUntil = 0, -- timestamp until which cavalry rides away
 		PeelPoint = nil, -- where cavalry retreats to before re-charging
+		BaseSpeed = Config.UnitTypes[unitType].WalkSpeed, -- speed before stamina effects
+		Stamina = Config.Stamina.Max,
+		Exhausted = false,
+		WantsSprint = false, -- set each tick by behaviors that sprint
 	}
 
 	-- When the Humanoid dies: flag the row, play death FX, tell the HUD, and

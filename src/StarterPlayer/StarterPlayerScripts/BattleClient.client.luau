@@ -25,6 +25,17 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- If you see this in the Output window, the client script IS synced & running.
 print("[BattleClient] spectator camera active")
 
+-- Render distance: push fog/atmosphere out so far-off units don't fade away.
+local Lighting = game:GetService("Lighting")
+Lighting.FogStart = 100000
+Lighting.FogEnd = 1000000
+for _, item in Lighting:GetChildren() do
+	if item:IsA("Atmosphere") then
+		item.Density = math.min(item.Density, 0.15)
+		item.Haze = 0
+	end
+end
+
 -- Freeze the avatar so flying the camera doesn't also walk the character
 -- around the viewing platform.
 local function freezeCharacter(character)

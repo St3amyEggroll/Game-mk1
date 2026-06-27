@@ -57,6 +57,43 @@ local function dressModel(model, color)
 	end
 end
 
+-- A simple cosmetic horse welded under a cavalry rider. Massless + no-collide
+-- so it doesn't affect physics or pathfinding at all.
+local function attachHorse(model)
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return
+	end
+	local brown = Color3.fromRGB(110, 70, 40)
+	local dark = Color3.fromRGB(70, 45, 28)
+
+	local function piece(size, offset, color)
+		local part = Instance.new("Part")
+		part.Size = size
+		part.Color = color
+		part.Material = Enum.Material.SmoothPlastic
+		part.Massless = true
+		part.CanCollide = false
+		part.CanQuery = false
+		part.CollisionGroup = UNITS_GROUP
+		part.CFrame = hrp.CFrame * offset
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = hrp
+		weld.Part1 = part
+		part.Parent = model
+		weld.Parent = part
+	end
+
+	piece(Vector3.new(1.6, 1.4, 4), CFrame.new(0, -1.4, -0.3), brown) -- body
+	piece(Vector3.new(1, 1.7, 1), CFrame.new(0, -0.4, -2.2), brown) -- neck
+	piece(Vector3.new(0.9, 0.9, 1.6), CFrame.new(0, 0.1, -2.9), brown) -- head
+	for _, x in { -0.6, 0.6 } do
+		for _, z in { -1.4, 1.4 } do
+			piece(Vector3.new(0.4, 2, 0.4), CFrame.new(x, -2.6, z), dark) -- legs
+		end
+	end
+end
+
 -- A glow so you can spot the Leader on the field.
 local function addGlow(model, color)
 	local highlight = Instance.new("Highlight")
@@ -97,9 +134,15 @@ local function buildRoster()
 	local flankers = Config.Command.FlankSquadSize
 	local lineCount = 0
 	for _, soldier in soldiers do
-		if soldier.Type == "Cavalry" then
+		local t = soldier.Type
+		if t == "Cavalry" then
 			soldier.Role = "Cavalry"
+		elseif t == "Archer" then
+			soldier.Role = "Archer"
+		elseif t == "Scout" then
+			soldier.Role = "Scout"
 		else
+			-- Melee / Spearman = line infantry, eligible for guard/flank.
 			lineCount += 1
 			if lineCount <= guards then
 				soldier.Role = "Guard"
@@ -142,6 +185,9 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 		-- Lift slightly so they don't spawn clipped into the floor.
 		model:PivotTo(facing * CFrame.new(offset + Vector3.new(0, 3, 0)))
 		dressModel(model, teamData.Color)
+		if slot.Type == "Cavalry" then
+			attachHorse(model)
+		end
 
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		local maxHealth = stats.MaxHealth
