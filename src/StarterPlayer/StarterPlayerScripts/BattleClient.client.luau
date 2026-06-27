@@ -48,42 +48,48 @@ screen.ResetOnSpawn = false
 screen.IgnoreGuiInset = true
 screen.Parent = playerGui
 
--- Scoreboard (top center).
+-- Scoreboard (top center) — one panel per team, built from Config.Teams.
+local teamKeys = {}
+for key in Config.Teams do
+	table.insert(teamKeys, key)
+end
+table.sort(teamKeys)
+
 local scoreFrame = Instance.new("Frame")
-scoreFrame.Size = UDim2.fromOffset(360, 54)
-scoreFrame.Position = UDim2.new(0.5, -180, 0, 12)
+scoreFrame.AutomaticSize = Enum.AutomaticSize.X
+scoreFrame.Size = UDim2.fromOffset(0, 56)
+scoreFrame.Position = UDim2.new(0.5, 0, 0, 12)
+scoreFrame.AnchorPoint = Vector2.new(0.5, 0)
 scoreFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 scoreFrame.BackgroundTransparency = 0.4
 scoreFrame.BorderSizePixel = 0
 scoreFrame.Parent = screen
 Instance.new("UICorner").Parent = scoreFrame
+local scoreLayout = Instance.new("UIListLayout")
+scoreLayout.FillDirection = Enum.FillDirection.Horizontal
+scoreLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+scoreLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+scoreLayout.Padding = UDim.new(0, 8)
+scoreLayout.Parent = scoreFrame
+local scorePad = Instance.new("UIPadding")
+scorePad.PaddingLeft = UDim.new(0, 14)
+scorePad.PaddingRight = UDim.new(0, 14)
+scorePad.Parent = scoreFrame
 
-local function makeScoreLabel(anchorX, posX, color)
+local teamLabels = {} -- teamKey -> TextLabel
+for order, key in teamKeys do
+	local team = Config.Teams[key]
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromOffset(150, 54)
-	label.Position = UDim2.fromOffset(posX, 0)
+	label.LayoutOrder = order
+	label.Size = UDim2.fromOffset(150, 56)
 	label.BackgroundTransparency = 1
 	label.Font = Enum.Font.GothamBold
 	label.TextScaled = true
-	label.TextColor3 = color
-	label.Text = "0"
-	label.TextXAlignment = anchorX
+	label.TextColor3 = team.Color
+	label.Text = team.Name .. "  0"
 	label.Parent = scoreFrame
-	return label
+	teamLabels[key] = label
 end
-
-local blueLabel = makeScoreLabel(Enum.TextXAlignment.Left, 14, Config.Teams.A.Color)
-local redLabel = makeScoreLabel(Enum.TextXAlignment.Right, 196, Config.Teams.B.Color)
-
-local vsLabel = Instance.new("TextLabel")
-vsLabel.Size = UDim2.fromOffset(60, 54)
-vsLabel.Position = UDim2.fromOffset(150, 0)
-vsLabel.BackgroundTransparency = 1
-vsLabel.Font = Enum.Font.GothamBold
-vsLabel.TextScaled = true
-vsLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
-vsLabel.Text = "VS"
-vsLabel.Parent = scoreFrame
 
 -- Kill feed (top right, lines added/removed dynamically).
 local feed = Instance.new("Frame")
@@ -135,8 +141,9 @@ Instance.new("UICorner").Parent = banner
 
 local function updateScore(counts)
 	counts = counts or {}
-	blueLabel.Text = tostring(counts.A or 0)
-	redLabel.Text = tostring(counts.B or 0)
+	for key, label in teamLabels do
+		label.Text = Config.Teams[key].Name .. "  " .. tostring(counts[key] or 0)
+	end
 end
 
 local function teamColor(teamKey)
@@ -184,19 +191,20 @@ local FAST_MULTIPLIER = 3.5
 local LOOK_SENSITIVITY = 0.005
 
 -- Where to point the camera on startup: the battlefield, not empty space.
+-- Averages every Team*Spawn marker so it frames all armies (2 or 3 teams).
 local function initialFocus()
-	local a = Workspace:FindFirstChild("TeamASpawn")
-	local b = Workspace:FindFirstChild("TeamBSpawn")
-	if a and b then
-		return (a.Position + b.Position) / 2
-	elseif a then
-		return a.Position
+	local sum, count = Vector3.zero, 0
+	for _, child in Workspace:GetChildren() do
+		if child:IsA("BasePart") and string.match(child.Name, "^Team.*Spawn$") then
+			sum += child.Position
+			count += 1
+		end
+	end
+	if count > 0 then
+		return sum / count
 	end
 	local ground = Workspace:FindFirstChild("Battlefield") or Workspace:FindFirstChild("Baseplate")
-	if ground then
-		return ground.Position
-	end
-	return Vector3.zero
+	return ground and ground.Position or Vector3.zero
 end
 
 -- Camera state, tracked as a position + yaw/pitch we rebuild each frame.

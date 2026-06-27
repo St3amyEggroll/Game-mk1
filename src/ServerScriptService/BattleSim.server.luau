@@ -28,23 +28,32 @@ pcall(function() PhysicsService:RegisterCollisionGroup("BattleUnits") end)
 pcall(function() PhysicsService:RegisterCollisionGroup("Spectator") end)
 pcall(function() PhysicsService:CollisionGroupSetCollidable("Spectator", "BattleUnits", false) end)
 
--- A point off to the side of the battle, raised up, looking at the middle.
+-- A raised point overlooking the whole battle (averages every Team*Spawn marker).
 local function viewpoint()
-	local a = Workspace:FindFirstChild("TeamASpawn")
-	local b = Workspace:FindFirstChild("TeamBSpawn")
-	local center, axis
-	if a and b then
-		center = (a.Position + b.Position) / 2
-		axis = b.Position - a.Position
+	local markers = {}
+	for _, child in Workspace:GetChildren() do
+		if child:IsA("BasePart") and string.match(child.Name, "^Team.*Spawn$") then
+			table.insert(markers, child.Position)
+		end
+	end
+
+	local center
+	if #markers > 0 then
+		local sum = Vector3.zero
+		for _, pos in markers do
+			sum += pos
+		end
+		center = sum / #markers
 	else
 		local ground = Workspace:FindFirstChild("Battlefield") or Workspace:FindFirstChild("Baseplate")
 		center = ground and ground.Position or Vector3.zero
-		axis = Vector3.new(1, 0, 0)
 	end
-	axis = axis.Magnitude > 0 and axis.Unit or Vector3.new(1, 0, 0)
-	local side = axis:Cross(Vector3.new(0, 1, 0))
-	side = side.Magnitude > 0 and side.Unit or Vector3.new(0, 0, 1)
-	return center + side * 130 + Vector3.new(0, 8, 0), center
+
+	local spread = 60
+	for _, pos in markers do
+		spread = math.max(spread, (pos - center).Magnitude)
+	end
+	return center + Vector3.new(0, spread * 0.9 + 25, spread * 1.4 + 70), center
 end
 
 -- Make/repair a SpawnLocation on that viewing platform.

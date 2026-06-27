@@ -46,6 +46,9 @@ function UnitManager.Register(model, teamKey, unitType)
 		Nav = nil, -- pathfinding state, managed by NavigationSystem
 		AttackedBy = nil, -- last enemy that hit us (for threat assessment)
 		AttackedAt = 0, -- when that hit landed
+		CavalryPhase = "Charge", -- "Charge" | "Peel", for hit-and-run cavalry
+		PeelUntil = 0, -- timestamp until which cavalry rides away
+		PeelPoint = nil, -- where cavalry retreats to before re-charging
 	}
 
 	-- When the Humanoid dies: flag the row, play death FX, tell the HUD, and

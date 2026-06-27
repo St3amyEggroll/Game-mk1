@@ -83,6 +83,14 @@ function CommandSystem.Update()
 		end
 	end
 
+	-- Per-team center + health, so a 3-way reads each rival army separately
+	-- (otherwise everyone thinks they're outnumbered by "everyone else").
+	local centers, healths = {}, {}
+	for team, list in byTeam do
+		centers[team] = averagePosition(list)
+		healths[team] = totalHealth(list)
+	end
+
 	for teamKey in Config.Teams do
 		local state = CommandSystem.TeamStates[teamKey]
 		if not state then
@@ -119,8 +127,22 @@ function CommandSystem.Update()
 			continue
 		end
 
-		local allyCenter = averagePosition(allies)
-		local enemyCenter = averagePosition(enemies)
+		local allyCenter = centers[teamKey]
+
+		-- Focus the NEAREST rival army: advance on it, and judge the battle
+		-- against it (not the sum of all enemies).
+		local enemyCenter, enemyHealth, bestDist = nil, 0, math.huge
+		for otherTeam in byTeam do
+			if otherTeam ~= teamKey then
+				local dist = (centers[otherTeam] - allyCenter).Magnitude
+				if dist < bestDist then
+					bestDist = dist
+					enemyCenter = centers[otherTeam]
+					enemyHealth = healths[otherTeam]
+				end
+			end
+		end
+
 		state.AllyCenter = allyCenter
 		state.EnemyCenter = enemyCenter
 
@@ -128,8 +150,8 @@ function CommandSystem.Update()
 		toEnemy = toEnemy.Magnitude > 0 and toEnemy.Unit or Vector3.new(1, 0, 0)
 		local side = Vector3.new(-toEnemy.Z, 0, toEnemy.X)
 
-		-- Read the battle: our health vs theirs sets the stance.
-		local ratio = totalHealth(allies) / math.max(1, totalHealth(enemies))
+		-- Read the battle: our health vs the nearest rival sets the stance.
+		local ratio = healths[teamKey] / math.max(1, enemyHealth)
 		local leaderAlive = state.Leader ~= nil
 		local stance
 		if ratio <= Config.Command.RetreatRatio or (not leaderAlive and ratio < 1) then

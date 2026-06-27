@@ -21,6 +21,11 @@ Config.Teams = {
 		Color = Color3.fromRGB(255, 80, 70),
 		SpawnMarker = "TeamBSpawn",
 	},
+	C = {
+		Name = "Green Army",
+		Color = Color3.fromRGB(80, 200, 90),
+		SpawnMarker = "TeamCSpawn",
+	},
 }
 
 -- Stat block for each kind of soldier. RigName must match a Model you put
@@ -45,6 +50,15 @@ Config.UnitTypes = {
 		AttackCooldown = 1.5,
 		Priority = 1.5, -- squishy and dangerous, worth focusing
 	},
+	Cavalry = {
+		RigName = "CavalryUnit", -- build this rig; falls back to MeleeUnit if missing
+		MaxHealth = 120,
+		WalkSpeed = 30, -- fast — they charge
+		AttackRange = 8, -- lance reach
+		AttackDamage = 35, -- big charge impact
+		AttackCooldown = 0.8,
+		Priority = 1,
+	},
 }
 
 -- How units pick a target (threat assessment + priorities). Higher weight =
@@ -64,7 +78,15 @@ Config.Targeting = {
 -- What each team is made of (NOT counting the Leader, who is added on top).
 -- Add more entries / bump Count to grow the army.
 Config.Composition = {
-	{ Type = "Melee", Count = 12 },
+	{ Type = "Melee", Count = 20 },
+	{ Type = "Cavalry", Count = 5 },
+}
+
+-- Cavalry hit-and-run: charge in, strike, then peel away and re-charge instead
+-- of getting bogged down in the melee.
+Config.Cavalry = {
+	PeelTime = 1.2, -- seconds spent riding away after a strike
+	PeelDistance = 35, -- how far they pull back before wheeling around
 }
 
 -- The Leader directs the team from the back. Beefy, scaled-up, glowing.

@@ -181,11 +181,61 @@ local function flankAct(unit, now, state, allies)
 	end
 end
 
+-- Cavalry: ride with the army until contact, then charge -> strike -> peel
+-- away -> wheel around and charge again, instead of grinding in the melee.
+local function cavalryAct(unit, now, state, allies)
+	-- Stay with the army before the lines meet, and when falling back.
+	if state and (state.Order == "Advance" or state.Order == "Retreat") then
+		local goal = state.Order == "Retreat" and (state.RearPoint or state.AllyCenter)
+			or (state.RallyPoint or state.AllyCenter)
+		moveTo(unit, (goal or unit.Root.Position) + unit.FormationOffset, allies, now)
+		return
+	end
+
+	-- Riding away after a strike.
+	if unit.CavalryPhase == "Peel" then
+		if now < (unit.PeelUntil or 0) and unit.PeelPoint then
+			moveTo(unit, unit.PeelPoint, allies, now)
+			return
+		end
+		unit.CavalryPhase = "Charge"
+		unit.LastAttack = 0 -- next contact lands for full charge impact
+	end
+
+	-- Charging.
+	local target = unit.Target
+	if not target or not target.Alive then
+		if state and state.EnemyCenter then
+			moveTo(unit, state.EnemyCenter, allies, now)
+		end
+		return
+	end
+
+	local dist = (target.Root.Position - unit.Root.Position).Magnitude
+	if dist <= unit.Stats.AttackRange then
+		swingAt(unit, target, now, state) -- impact
+		-- Peel off and set a point to ride to before wheeling around.
+		unit.CavalryPhase = "Peel"
+		unit.PeelUntil = now + Config.Cavalry.PeelTime
+		local away = unit.Root.Position - target.Root.Position
+		away = Vector3.new(away.X, 0, away.Z)
+		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
+		unit.PeelPoint = unit.Root.Position + away * Config.Cavalry.PeelDistance
+	else
+		moveTo(unit, target.Root.Position, allies, now)
+	end
+end
+
 function CombatSystem.Act(unit, now, state)
 	local allies = (state and state.Allies) or {}
 
 	if unit.IsLeader then
 		leaderAct(unit, now, state, allies)
+		return
+	end
+
+	if unit.Role == "Cavalry" then
+		cavalryAct(unit, now, state, allies)
 		return
 	end
 

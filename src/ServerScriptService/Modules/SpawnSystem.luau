@@ -91,14 +91,22 @@ local function buildRoster()
 		end
 	end
 
+	-- Guard/Flank roles are assigned among the LINE soldiers only. Cavalry get
+	-- their own role (hit-and-run), they don't guard or hold formation.
 	local guards = Config.Leader.Enabled and Config.Leader.GuardSquadSize or 0
 	local flankers = Config.Command.FlankSquadSize
-	for index, soldier in soldiers do
-		if index <= guards then
-			soldier.Role = "Guard"
-			soldier.GuardIndex = index - 1 -- 0-based slot in the guard ring
-		elseif index <= guards + flankers then
-			soldier.Role = "Flank"
+	local lineCount = 0
+	for _, soldier in soldiers do
+		if soldier.Type == "Cavalry" then
+			soldier.Role = "Cavalry"
+		else
+			lineCount += 1
+			if lineCount <= guards then
+				soldier.Role = "Guard"
+				soldier.GuardIndex = lineCount - 1 -- 0-based slot in the guard ring
+			elseif lineCount <= guards + flankers then
+				soldier.Role = "Flank"
+			end
 		end
 		table.insert(roster, soldier)
 	end
@@ -119,9 +127,11 @@ local function spawnTeam(teamKey, teamData, assets, unitsFolder)
 	local roster = buildRoster()
 	for slotIndex, slot in roster do
 		local stats = Config.UnitTypes[slot.Type]
-		local template = assets:FindFirstChild(stats.RigName)
+		-- Use the type's rig; fall back to MeleeUnit so a missing rig (e.g. you
+		-- haven't built CavalryUnit yet) doesn't silently shrink the army.
+		local template = assets:FindFirstChild(stats.RigName) or assets:FindFirstChild("MeleeUnit")
 		if not template then
-			warn(("[SpawnSystem] No rig named '%s' in ReplicatedStorage/Assets."):format(stats.RigName))
+			warn(("[SpawnSystem] No rig '%s' (and no MeleeUnit fallback) in ReplicatedStorage/Assets."):format(stats.RigName))
 			continue
 		end
 
