@@ -1,0 +1,15 @@
+{
+  "name": "Game-mk1",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Config": { "$path": "src/ReplicatedStorage/Config.luau" }
+    },
+
+    "ServerScriptService": {
+      "BattleSim": { "$path": "src/ServerScriptService/BattleSim.server.luau" },
+      "Modules": { "$path": "src/ServerScriptService/Modules" }
+    }
+  }
+}
