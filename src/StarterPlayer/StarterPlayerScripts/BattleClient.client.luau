@@ -231,6 +231,7 @@ end
 local held = {} -- keycode name -> true
 local looking = false
 local followMode = false
+local fogView = false -- spectator fog: ghost units no enemy can currently see
 
 local function camRotation()
 	return CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
@@ -272,8 +273,26 @@ hint.Font = Enum.Font.Gotham
 hint.TextSize = 15
 hint.TextColor3 = Color3.fromRGB(235, 235, 235)
 hint.TextStrokeTransparency = 0.5
-hint.Text = "WASD fly  ·  hold Right-Mouse to look  ·  Q/E down/up  ·  Shift boost  ·  F auto-follow"
+hint.Text = "WASD fly · hold Right-Mouse look · Q/E down/up · Shift boost · F follow · V fog view"
 hint.Parent = screen
+
+-- Spectator fog view: when on, units no enemy can currently see turn ghostly,
+-- so you can watch who's hidden. Uses LocalTransparencyModifier (client-only,
+-- preserves the rig's real transparency, e.g. the invisible HumanoidRootPart).
+local function applyFog()
+	local unitsFolder = Workspace:FindFirstChild("Units")
+	if not unitsFolder then
+		return
+	end
+	for _, model in unitsFolder:GetChildren() do
+		local ghost = fogView and (model:GetAttribute("Spotted") == false)
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.LocalTransparencyModifier = ghost and 0.78 or 0
+			end
+		end
+	end
+end
 
 -- Input: keys.
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -284,6 +303,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		held[input.KeyCode.Name] = true
 		if input.KeyCode == Enum.KeyCode.F then
 			followMode = not followMode
+		elseif input.KeyCode == Enum.KeyCode.V then
+			fogView = not fogView
+			applyFog()
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 		looking = true
@@ -345,3 +367,17 @@ local function updateCamera(dt)
 end
 
 RunService:BindToRenderStep("SpectatorCamera", Enum.RenderPriority.Camera.Value + 1, updateCamera)
+
+-- Keep the fog view in sync as units get spotted/unspotted (and as new units
+-- spawn). Cheap and only does anything while fog view is on.
+local fogAccum = 0
+RunService.Heartbeat:Connect(function(dt)
+	if not fogView then
+		return
+	end
+	fogAccum += dt
+	if fogAccum >= 0.15 then
+		fogAccum = 0
+		applyFog()
+	end
+end)

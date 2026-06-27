@@ -107,6 +107,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local Modules = ServerScriptService:WaitForChild("Modules")
 local UnitManager = require(Modules.UnitManager)
 local SpawnSystem = require(Modules.SpawnSystem)
+local VisionSystem = require(Modules.VisionSystem)
 local CommandSystem = require(Modules.CommandSystem)
 local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
@@ -154,6 +155,7 @@ end
 
 local function runOneBattle()
 	UnitManager.Clear()
+	VisionSystem.Reset()
 	CommandSystem.Reset()
 	SpawnSystem.SpawnAllTeams()
 	CombatSystem.RefreshObstacleFilter()
@@ -171,8 +173,9 @@ local function runOneBattle()
 	while true do
 		local now = os.clock()
 
-		-- Refresh hazard zones, then leaders set each team's plan, then soldiers act.
+		-- Refresh hazards + vision (fog of war), then leaders plan, then soldiers act.
 		HazardSystem.Refresh()
+		VisionSystem.Update(now)
 		CommandSystem.Update()
 
 		for _, unit in UnitManager.Units do

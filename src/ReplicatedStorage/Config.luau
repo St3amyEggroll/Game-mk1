@@ -226,6 +226,16 @@ Config.HealthBars = {
 	Enabled = true,
 }
 
+-- Fog of war. Units only know what they (or a teammate) can see; sightings are
+-- shared across the team and remembered as "last-known" positions after sight
+-- is lost. Vision is blocked by walls/obstacles (not by other units).
+Config.Vision = {
+	Interval = 0.2, -- seconds between vision recomputations (throttled = cheap)
+	Memory = 8, -- seconds a lost enemy is remembered before being forgotten
+	ForgetRadius = 12, -- reach a last-known spot and see nothing -> forget it
+	AmbushBonus = 1.6, -- damage multiplier when you strike someone who can't see you
+}
+
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.
 -- This is NOT every frame on purpose — it's the first and most important
 -- optimization habit. We can run hundreds of units because each one only

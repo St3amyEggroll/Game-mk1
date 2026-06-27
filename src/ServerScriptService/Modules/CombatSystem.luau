@@ -1,21 +1,17 @@
 --[[
-	CombatSystem
-	------------
-	One unit's "turn", driven by its role + the team's stance/order:
+	CombatSystem  (fog-aware)
+	-------------------------
+	One unit's "turn", driven by its role + the team's stance/order, and now by
+	what the team can SEE:
 
-	  • Leader  — directs from the back; pulls back further when threatened;
-	              self-defends only.
-	  • Guard   — screens the Leader, or forms a defensive RING when the Leader
-	              is threatened; intercepts anything near him.
-	  • Flank   — stays with the line while advancing, then peels off ONCE
-	              engaged and drives at the enemy's rear / leader.
-	  • Main    — advances (to the rally or a defensive hold line), then engages.
+	  • Units move toward a target's BELIEVED position (real if visible, else the
+	    last-known spot — so they investigate where an enemy was last seen).
+	  • Units only STRIKE a target they can actually see and reach.
+	  • Striking an enemy whose team can't see you lands an AMBUSH bonus.
 
-	On a Retreat order everyone falls back to the rear regroup point.
-
-	Movement routes around obstacles (NavigationSystem), steers apart from
-	allies (separation) and away from hazards. Attacks record who hit whom so
-	the TargetingSystem can do threat assessment.
+	Roles: Leader (directs/self-defends), Guard (screens/rings the leader),
+	Flank (peels once engaged), Archer (kites + shoots with LOS), Cavalry
+	(charge/peel hit-and-run), Main/Scout (advance then engage).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,6 +25,30 @@ local CombatSystem = {}
 function CombatSystem.RefreshObstacleFilter()
 	NavigationSystem.Refresh()
 end
+
+-- ---- fog-of-war helpers ----------------------------------------------------
+
+local function isVisible(state, target)
+	local entry = state and state.Known and state.Known[target]
+	return entry ~= nil and entry.visible
+end
+
+-- Where this unit BELIEVES the target is: real spot if seen, else last-known.
+local function believedPos(state, target)
+	if isVisible(state, target) then
+		return target.Root.Position
+	end
+	local entry = state and state.Known and state.Known[target]
+	return (entry and entry.pos) or target.Root.Position
+end
+
+-- Can we actually hit it? Must be visible and within reach.
+local function canStrike(unit, target, state)
+	return isVisible(state, target)
+		and (target.Root.Position - unit.Root.Position).Magnitude <= unit.Stats.AttackRange
+end
+
+-- ---- movement --------------------------------------------------------------
 
 local function separation(unit, allies)
 	local push = Vector3.zero
@@ -46,7 +66,6 @@ local function separation(unit, allies)
 	return push
 end
 
--- Route around obstacles, then steer apart from allies and away from hazards.
 local function moveTo(unit, goal, allies, now)
 	local point = NavigationSystem.NextPoint(unit, goal, now)
 	local steer = separation(unit, allies) + HazardSystem.Repel(unit.Root.Position)
@@ -61,6 +80,8 @@ local function faceToward(unit, targetPos)
 	end
 end
 
+-- ---- attacks ---------------------------------------------------------------
+
 local function attackDamage(unit, state, target)
 	local damage = unit.Stats.AttackDamage
 	local leader = state and state.Leader
@@ -71,16 +92,19 @@ local function attackDamage(unit, state, target)
 	elseif Config.Leader.Enabled and not leader then
 		damage *= Config.Command.LeaderlessDamagePenalty
 	end
-	-- Counter bonus, e.g. spearmen vs cavalry.
+	-- Counter bonus (spearmen vs cavalry).
 	local bonus = unit.Stats.BonusVs
 	if bonus and target and bonus[target.Type] then
 		damage *= bonus[target.Type]
 	end
+	-- Ambush: the target's team can't see us.
+	if target and unit.SeenBy and not unit.SeenBy[target.Team] then
+		damage *= Config.Vision.AmbushBonus
+	end
 	return damage
 end
 
--- Land a hit on a target, recording the threat. Returns true if it actually
--- fired (cooldown was ready).
+-- Land a hit if the cooldown is ready. Returns true if it fired.
 local function dealHit(unit, target, now, state)
 	if now - unit.LastAttack < unit.Stats.AttackCooldown then
 		return false
@@ -98,10 +122,11 @@ local function swingAt(unit, target, now, state)
 	dealHit(unit, target, now, state)
 end
 
+-- Nearest KNOWN enemy to a position (by believed location).
 local function nearestEnemy(state, position)
 	local nearest, nearestDist = nil, math.huge
-	for _, enemy in (state and state.Enemies) or {} do
-		local dist = (enemy.Root.Position - position).Magnitude
+	for _, enemy in (state and state.KnownList) or {} do
+		local dist = (believedPos(state, enemy) - position).Magnitude
 		if dist < nearestDist then
 			nearestDist = dist
 			nearest = enemy
@@ -110,20 +135,20 @@ local function nearestEnemy(state, position)
 	return nearest, nearestDist
 end
 
--- Close on a target and attack it.
+-- Strike if we can see & reach the target, otherwise move to its believed spot.
 local function fightTarget(unit, target, now, state, allies)
 	if not target or not target.Alive then
 		return
 	end
-	local dist = (target.Root.Position - unit.Root.Position).Magnitude
-	if dist > unit.Stats.AttackRange then
-		moveTo(unit, target.Root.Position, allies, now)
-	else
+	if canStrike(unit, target, state) then
 		swingAt(unit, target, now, state)
+	else
+		moveTo(unit, believedPos(state, target), allies, now)
 	end
 end
 
--- Leader: direct from the back; pull back further when threatened; self-defend.
+-- ---- per-role behavior -----------------------------------------------------
+
 local function leaderAct(unit, now, state, allies)
 	if state and state.AllyCenter and state.EnemyCenter then
 		local back = state.AllyCenter - state.EnemyCenter
@@ -135,13 +160,12 @@ local function leaderAct(unit, now, state, allies)
 		moveTo(unit, goal, allies, now)
 	end
 
-	local nearest, dist = nearestEnemy(state, unit.Root.Position)
-	if nearest and dist <= unit.Stats.AttackRange then
+	local nearest = nearestEnemy(state, unit.Root.Position)
+	if nearest and canStrike(unit, nearest, state) then
 		swingAt(unit, nearest, now, state)
 	end
 end
 
--- Guard: screen the Leader, or ring up around him when he's threatened.
 local function guardAct(unit, now, state, allies)
 	local leader = state and state.Leader
 	if not leader or not leader.Alive then
@@ -158,45 +182,38 @@ local function guardAct(unit, now, state, allies)
 
 	local ringUp = state.LeaderThreatened or state.Stance == "Defensive" or state.Stance == "Retreat"
 	if ringUp then
-		-- Evenly spaced ring around the Leader.
 		local count = math.max(1, Config.Leader.GuardSquadSize)
 		local angle = (unit.GuardIndex / count) * math.pi * 2
 		local spot = leaderPos + Vector3.new(math.cos(angle), 0, math.sin(angle)) * Config.Leader.GuardRingRadius
 		moveTo(unit, spot, allies, now)
 	else
-		-- Screen the front (between Leader and enemy).
 		local toEnemy = (state.EnemyCenter or leaderPos) - leaderPos
 		toEnemy = toEnemy.Magnitude > 0.01 and toEnemy.Unit or Vector3.new(0, 0, 1)
 		moveTo(unit, leaderPos + toEnemy * Config.Leader.GuardScreenDistance + unit.FormationOffset, allies, now)
 	end
 end
 
--- Flank: hold with the line while advancing; once engaged, drive at the
--- enemy's rear / leader to pour through the gap.
 local function flankAct(unit, now, state, allies)
 	if state.Order == "Engage" then
-		if unit.Target and unit.Target.Alive then
-			local dist = (unit.Target.Root.Position - unit.Root.Position).Magnitude
-			if dist <= unit.Stats.AttackRange then
-				swingAt(unit, unit.Target, now, state)
-				return
-			end
+		if unit.Target and canStrike(unit, unit.Target, state) then
+			swingAt(unit, unit.Target, now, state)
+			return
 		end
-		-- Push toward the enemy leader if known, else the flank point.
-		local drive = (state.FocusTarget and state.FocusTarget.Alive and state.FocusTarget.Root.Position)
-			or state.FlankPoint
-			or unit.Root.Position
+		local drive = unit.Root.Position
+		if state.FocusTarget and state.FocusTarget.Alive then
+			drive = believedPos(state, state.FocusTarget)
+		elseif state.FlankPoint then
+			drive = state.FlankPoint
+		end
 		moveTo(unit, drive, allies, now)
 	else
-		-- Advancing: stay in formation with the main line.
 		local rally = state.RallyPoint or state.AllyCenter or unit.Root.Position
 		moveTo(unit, rally + unit.FormationOffset, allies, now)
 	end
 end
 
--- Archer: shoot from afar, kite away if enemies close in, need line of sight.
+-- Archer: shoot visible targets from afar; kite away if they get too close.
 local function rangedAct(unit, now, state, allies)
-	-- Advance with the army until the lines meet.
 	if state and state.Order == "Advance" then
 		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint or state.AllyCenter
 		moveTo(unit, (rally or unit.Root.Position) + unit.FormationOffset, allies, now)
@@ -212,19 +229,24 @@ local function rangedAct(unit, now, state, allies)
 	end
 
 	local myPos = unit.Root.Position
+
+	-- Can't see it: move to where we think it is.
+	if not isVisible(state, target) then
+		moveTo(unit, believedPos(state, target), allies, now)
+		return
+	end
+
 	local targetPos = target.Root.Position
 	local dist = (targetPos - myPos).Magnitude
 	local minRange = unit.Stats.MinRange or 0
 
 	if dist < minRange then
-		-- Too close: kite away (and sprint, so it costs stamina).
-		unit.WantsSprint = true
+		unit.WantsSprint = true -- kite away (costs stamina)
 		local away = myPos - targetPos
 		away = Vector3.new(away.X, 0, away.Z)
 		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
 		moveTo(unit, myPos + away * 20, allies, now)
 	elseif dist <= unit.Stats.AttackRange and NavigationSystem.HasLineOfSight(myPos, targetPos) then
-		-- In range with a clear shot: stop, face, fire (with a tracer).
 		unit.Humanoid:Move(Vector3.zero)
 		faceToward(unit, targetPos)
 		if dealHit(unit, target, now, state) then
@@ -232,15 +254,12 @@ local function rangedAct(unit, now, state, allies)
 			EffectsSystem.Tracer(myPos + Vector3.new(0, 1.5, 0), targetPos + Vector3.new(0, 1.5, 0), color)
 		end
 	else
-		-- Out of range or blocked: reposition for a shot.
 		moveTo(unit, targetPos, allies, now)
 	end
 end
 
--- Cavalry: ride with the army until contact, then charge -> strike -> peel
--- away -> wheel around and charge again, instead of grinding in the melee.
+-- Cavalry: ride with the army, then charge -> strike -> peel away -> re-charge.
 local function cavalryAct(unit, now, state, allies)
-	-- Stay with the army before the lines meet, and when falling back.
 	if state and (state.Order == "Advance" or state.Order == "Retreat") then
 		local goal = state.Order == "Retreat" and (state.RearPoint or state.AllyCenter)
 			or (state.RallyPoint or state.AllyCenter)
@@ -248,18 +267,16 @@ local function cavalryAct(unit, now, state, allies)
 		return
 	end
 
-	-- Riding away after a strike.
 	if unit.CavalryPhase == "Peel" then
 		if now < (unit.PeelUntil or 0) and unit.PeelPoint then
 			moveTo(unit, unit.PeelPoint, allies, now)
 			return
 		end
 		unit.CavalryPhase = "Charge"
-		unit.LastAttack = 0 -- next contact lands for full charge impact
+		unit.LastAttack = 0
 	end
 
-	-- Charging — full gallop.
-	unit.WantsSprint = true
+	unit.WantsSprint = true -- full gallop
 	local target = unit.Target
 	if not target or not target.Alive then
 		if state and state.EnemyCenter then
@@ -268,10 +285,8 @@ local function cavalryAct(unit, now, state, allies)
 		return
 	end
 
-	local dist = (target.Root.Position - unit.Root.Position).Magnitude
-	if dist <= unit.Stats.AttackRange then
+	if canStrike(unit, target, state) then
 		swingAt(unit, target, now, state) -- impact
-		-- Peel off and set a point to ride to before wheeling around.
 		unit.CavalryPhase = "Peel"
 		unit.PeelUntil = now + Config.Cavalry.PeelTime
 		local away = unit.Root.Position - target.Root.Position
@@ -279,9 +294,11 @@ local function cavalryAct(unit, now, state, allies)
 		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
 		unit.PeelPoint = unit.Root.Position + away * Config.Cavalry.PeelDistance
 	else
-		moveTo(unit, target.Root.Position, allies, now)
+		moveTo(unit, believedPos(state, target), allies, now)
 	end
 end
+
+-- ---- dispatch --------------------------------------------------------------
 
 function CombatSystem.Act(unit, now, state)
 	local allies = (state and state.Allies) or {}
@@ -296,15 +313,14 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
-	-- Retreat overrides roles: everyone flees to the rear, fighting only in reach.
 	if state and state.Order == "Retreat" then
 		if unit.Role == "Guard" then
 			guardAct(unit, now, state, allies)
 		else
 			unit.WantsSprint = true -- run for it (and tire out)
 			moveTo(unit, (state.RearPoint or state.AllyCenter) + unit.FormationOffset, allies, now)
-			local nearest, dist = nearestEnemy(state, unit.Root.Position)
-			if nearest and dist <= unit.Stats.AttackRange then
+			local nearest = nearestEnemy(state, unit.Root.Position)
+			if nearest and canStrike(unit, nearest, state) then
 				swingAt(unit, nearest, now, state)
 			end
 		end
@@ -326,7 +342,7 @@ function CombatSystem.Act(unit, now, state)
 		return
 	end
 
-	-- Main line. Advance to the rally (or a defensive hold line), then engage.
+	-- Main / Scout. Advance to the rally (or a defensive hold line), then engage.
 	if state and state.Order == "Advance" then
 		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint
 		if rally then

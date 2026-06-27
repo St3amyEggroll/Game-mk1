@@ -1,22 +1,21 @@
 --[[
-	TargetingSystem
-	---------------
-	Each unit scores every enemy and picks the best. The score blends:
+	TargetingSystem  (fog-aware)
+	----------------------------
+	A unit only considers enemies its TEAM currently knows about (KnownList).
+	It scores them and picks the best:
 
-	  • Priority   — high-value enemies (leader, and later healers/artillery).
-	  • Self threat   — an enemy currently attacking ME.
-	  • Leader threat — an enemy currently attacking MY leader (defend him!).
+	  • Priority   — high-value enemies (leader, archers).
+	  • Self/Leader threat — enemies attacking you or your leader.
 	  • Focus      — the Leader's called focus target.
-	  • Distance   — closer is better.
-	  • Hysteresis — a bonus for keeping the current target (no thrashing).
+	  • Distance   — closer (by last-known position) is better.
+	  • Hysteresis — bonus for keeping the current target (no thrashing).
 
-	NOTE: still an O(n) scan per unit. Fine to ~20v20; Milestone 4 swaps in a
-	spatial grid so units only score nearby foes.
+	Distances use the BELIEVED position: the real spot if we can see it now, or
+	the last-known spot if we've lost sight.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
-local UnitManager = require(script.Parent.UnitManager)
 
 local TargetingSystem = {}
 
@@ -27,27 +26,35 @@ local function priorityOf(enemy)
 	return enemy.Stats.Priority or 1
 end
 
--- True if `attacker` recently hit `victim`.
 local function recentlyHit(victim, attacker, now)
 	return victim
 		and victim.AttackedBy == attacker
 		and (now - (victim.AttackedAt or 0)) < Config.Targeting.ThreatMemory
 end
 
+local function believedPos(known, enemy)
+	local entry = known and known[enemy]
+	if not entry then
+		return enemy.Root.Position
+	end
+	return entry.visible and enemy.Root.Position or entry.pos
+end
+
 function TargetingSystem.UpdateTarget(unit, state, now)
-	local enemies = (state and state.Enemies) or UnitManager.GetEnemies(unit)
-	if #enemies == 0 then
-		unit.Target = nil
+	local knownList = state and state.KnownList
+	if not knownList or #knownList == 0 then
+		unit.Target = nil -- we don't know about anyone to fight
 		return
 	end
 
+	local known = state.Known
 	local W = Config.Targeting
 	local pos = unit.Root.Position
-	local leader = state and state.Leader
-	local focus = state and state.FocusTarget
+	local leader = state.Leader
+	local focus = state.FocusTarget
 
 	local function scoreOf(enemy)
-		local dist = (enemy.Root.Position - pos).Magnitude
+		local dist = (believedPos(known, enemy) - pos).Magnitude
 		local score = -dist * W.DistanceWeight
 		score += priorityOf(enemy) * W.PriorityWeight
 		if recentlyHit(unit, enemy, now) then
@@ -62,15 +69,14 @@ function TargetingSystem.UpdateTarget(unit, state, now)
 		return score
 	end
 
-	-- Start from the current target (with a stickiness bonus), then see if any
-	-- enemy beats it.
 	local best, bestScore = nil, -math.huge
-	if unit.Target and unit.Target.Alive then
+	-- Keep the current target only if it's still known.
+	if unit.Target and unit.Target.Alive and known and known[unit.Target] then
 		best = unit.Target
 		bestScore = scoreOf(unit.Target) + W.Hysteresis
 	end
 
-	for _, enemy in enemies do
+	for _, enemy in knownList do
 		local score = scoreOf(enemy)
 		if score > bestScore then
 			bestScore = score

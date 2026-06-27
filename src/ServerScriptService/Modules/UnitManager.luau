@@ -53,6 +53,8 @@ function UnitManager.Register(model, teamKey, unitType)
 		Stamina = Config.Stamina.Max,
 		Exhausted = false,
 		WantsSprint = false, -- set each tick by behaviors that sprint
+		SeenBy = {}, -- set of enemy team keys currently seeing this unit (fog of war)
+		SpottedState = false, -- last value pushed to the model's Spotted attribute
 	}
 
 	-- When the Humanoid dies: flag the row, play death FX, tell the HUD, and

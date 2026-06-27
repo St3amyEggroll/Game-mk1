@@ -1,26 +1,21 @@
 --[[
-	CommandSystem  (the Leader's brain)
-	-----------------------------------
-	Once per tick this reads the battle and builds ONE plan per team that the
-	soldiers follow. The plan now includes a STANCE based on who's winning:
+	CommandSystem  (the Leader's brain) — fog-aware
+	-----------------------------------------------
+	Builds one plan per team from what the team can SEE (VisionSystem), not from
+	omniscient truth. If a team can't see any enemies it advances toward the
+	nearest enemy spawn to make contact.
 
-	  • Aggressive  — winning: push hard, rally on the enemy.
-	  • Balanced    — even: standard advance + engage.
-	  • Defensive   — losing: hold a line, turtle up, Leader pulls back, guards
-	                  ring up around the Leader.
-	  • Retreat     — losing badly / Leader dead: fall back to a rear point and
-	                  regroup.
-
-	Other fields: RallyPoint (forward), RearPoint (regroup behind), FlankPoint
-	(enemy's side), FocusTarget (high-value enemy), LeaderThreatened, plus the
-	cached Allies/Enemies lists so nothing rebuilds per-unit.
-
-	This is the seam a PLAYER plugs into later: set Stance/Order/Focus by hand.
+	Plan fields: Stance (Aggressive/Balanced/Defensive/Retreat), Order
+	(Advance/Engage/Retreat/Hold), RallyPoint, HoldPoint, RearPoint, FlankPoint,
+	FocusTarget, LeaderThreatened, AllyCenter/EnemyCenter, plus Known (the
+	knowledge map) and KnownList (alive known enemies) the other systems read.
 ]]
 
+local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
+local VisionSystem = require(script.Parent.VisionSystem)
 
 local CommandSystem = {}
 
@@ -45,17 +40,43 @@ local function totalHealth(units)
 	return total
 end
 
--- Who the whole team focuses: enemy Leader if visible, else the closest,
--- weakest, highest-priority enemy near our front.
-local function chooseFocus(enemies, allyCenter)
-	for _, e in enemies do
+-- Believed position of a known enemy (real if visible now, else last-known).
+local function knownPos(entry, enemy)
+	if entry.visible then
+		return enemy.Root.Position
+	end
+	return entry.pos
+end
+
+-- Fallback target when we can't see anyone: the nearest enemy spawn marker.
+local function nearestEnemySpawn(teamKey, fromPos)
+	local best, bestDist = nil, math.huge
+	for otherTeam, data in Config.Teams do
+		if otherTeam ~= teamKey then
+			local marker = Workspace:FindFirstChild(data.SpawnMarker)
+			if marker then
+				local dist = (marker.Position - fromPos).Magnitude
+				if dist < bestDist then
+					bestDist = dist
+					best = marker.Position
+				end
+			end
+		end
+	end
+	return best or (fromPos + Vector3.new(0, 0, 50))
+end
+
+-- Who the whole team focuses among KNOWN enemies: an enemy leader if we've
+-- spotted one, else the closest/weakest/highest-priority sighting.
+local function chooseFocus(knownList, knowledge, allyCenter)
+	for _, e in knownList do
 		if e.IsLeader then
 			return e
 		end
 	end
 	local best, bestScore = nil, math.huge
-	for _, e in enemies do
-		local dist = (e.Root.Position - allyCenter).Magnitude
+	for _, e in knownList do
+		local dist = (knownPos(knowledge[e], e) - allyCenter).Magnitude
 		local score = dist + e.Humanoid.Health - (e.Stats.Priority or 1) * 20
 		if score < bestScore then
 			bestScore = score
@@ -70,7 +91,6 @@ function CommandSystem.Reset()
 end
 
 function CommandSystem.Update()
-	-- Single snapshot of living units, bucketed by team, for the whole tick.
 	local byTeam = {}
 	for _, unit in UnitManager.Units do
 		if unit.Alive then
@@ -83,14 +103,6 @@ function CommandSystem.Update()
 		end
 	end
 
-	-- Per-team center + health, so a 3-way reads each rival army separately
-	-- (otherwise everyone thinks they're outnumbered by "everyone else").
-	local centers, healths = {}, {}
-	for team, list in byTeam do
-		centers[team] = averagePosition(list)
-		healths[team] = totalHealth(list)
-	end
-
 	for teamKey in Config.Teams do
 		local state = CommandSystem.TeamStates[teamKey]
 		if not state then
@@ -99,16 +111,7 @@ function CommandSystem.Update()
 		end
 
 		local allies = byTeam[teamKey] or {}
-		local enemies = {}
-		for otherTeam, list in byTeam do
-			if otherTeam ~= teamKey then
-				table.move(list, 1, #list, #enemies + 1, enemies)
-			end
-		end
-
 		state.Allies = allies
-		state.Enemies = enemies
-
 		state.Leader = nil
 		for _, unit in allies do
 			if unit.IsLeader then
@@ -117,30 +120,49 @@ function CommandSystem.Update()
 			end
 		end
 
-		if #allies == 0 or #enemies == 0 then
+		-- Build the list of enemies we currently KNOW about.
+		local knowledge = VisionSystem.GetKnown(teamKey)
+		local knownList = {}
+		for enemy in knowledge do
+			if enemy.Alive then
+				table.insert(knownList, enemy)
+			end
+		end
+		state.Known = knowledge
+		state.KnownList = knownList
+		state.Enemies = knownList -- other systems treat "enemies" as "known enemies"
+
+		-- No army, or nobody left to fight anywhere: idle.
+		local anyEnemyAlive = false
+		for otherTeam, list in byTeam do
+			if otherTeam ~= teamKey and #list > 0 then
+				anyEnemyAlive = true
+				break
+			end
+		end
+		if #allies == 0 or not anyEnemyAlive then
 			state.Order = "Hold"
 			state.Stance = "Balanced"
 			state.FocusTarget = nil
-			state.AllyCenter = nil
-			state.EnemyCenter = nil
 			state.LeaderThreatened = false
 			continue
 		end
 
-		local allyCenter = centers[teamKey]
+		local allyCenter = averagePosition(allies)
 
-		-- Focus the NEAREST rival army: advance on it, and judge the battle
-		-- against it (not the sum of all enemies).
-		local enemyCenter, enemyHealth, bestDist = nil, 0, math.huge
-		for otherTeam in byTeam do
-			if otherTeam ~= teamKey then
-				local dist = (centers[otherTeam] - allyCenter).Magnitude
-				if dist < bestDist then
-					bestDist = dist
-					enemyCenter = centers[otherTeam]
-					enemyHealth = healths[otherTeam]
-				end
+		-- Enemy center + strength from what we can see (else head for their spawn).
+		local enemyCenter, enemyHealth
+		if #knownList > 0 then
+			local sum = Vector3.zero
+			enemyHealth = 0
+			for _, e in knownList do
+				sum += knownPos(knowledge[e], e)
+				enemyHealth += e.Humanoid.Health
 			end
+			enemyCenter = sum / #knownList
+		else
+			enemyCenter = nearestEnemySpawn(teamKey, allyCenter)
+			enemyHealth = 0
 		end
 
 		state.AllyCenter = allyCenter
@@ -150,8 +172,8 @@ function CommandSystem.Update()
 		toEnemy = toEnemy.Magnitude > 0 and toEnemy.Unit or Vector3.new(1, 0, 0)
 		local side = Vector3.new(-toEnemy.Z, 0, toEnemy.X)
 
-		-- Read the battle: our health vs the nearest rival sets the stance.
-		local ratio = healths[teamKey] / math.max(1, enemyHealth)
+		-- Read the battle from what we know (so unseen reinforcements surprise us).
+		local ratio = totalHealth(allies) / math.max(1, enemyHealth)
 		local leaderAlive = state.Leader ~= nil
 		local stance
 		if ratio <= Config.Command.RetreatRatio or (not leaderAlive and ratio < 1) then
@@ -165,12 +187,12 @@ function CommandSystem.Update()
 		end
 		state.Stance = stance
 
-		-- Is the Leader under direct threat?
+		-- Is a KNOWN enemy close to our Leader?
 		local threatened = false
 		if state.Leader then
 			local lp = state.Leader.Root.Position
-			for _, e in enemies do
-				if (e.Root.Position - lp).Magnitude <= Config.Leader.ThreatRadius then
+			for _, e in knownList do
+				if (knownPos(knowledge[e], e) - lp).Magnitude <= Config.Leader.ThreatRadius then
 					threatened = true
 					break
 				end
@@ -178,25 +200,22 @@ function CommandSystem.Update()
 		end
 		state.LeaderThreatened = threatened
 
-		-- Key positions.
 		state.RallyPoint = enemyCenter
 		state.HoldPoint = allyCenter + toEnemy * Config.Command.HoldDistance
 		state.RearPoint = allyCenter - toEnemy * Config.Command.RetreatDistance
 		state.FlankPoint = enemyCenter + side * Config.Command.FlankWidth
 
-		-- Order from stance + spacing.
 		local frontGap = (enemyCenter - allyCenter).Magnitude
 		if stance == "Retreat" then
 			state.Order = "Retreat"
 		elseif stance == "Defensive" then
-			-- Hold the line; only "Engage" once they reach our hold point.
 			state.Order = (frontGap > Config.Command.HoldDistance + Config.Command.EngageRange) and "Advance"
 				or "Engage"
 		else
 			state.Order = (frontGap > Config.Command.EngageRange) and "Advance" or "Engage"
 		end
 
-		state.FocusTarget = chooseFocus(enemies, allyCenter)
+		state.FocusTarget = chooseFocus(knownList, knowledge, allyCenter)
 	end
 end
 

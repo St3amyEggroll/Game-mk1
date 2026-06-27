@@ -89,9 +89,10 @@ Two optimization habits are baked in from day one:
 
 ### Big-feature roadmap
 - **Phase 1 — units & bodies** ✅ (archers, spearmen, scouts, stamina, cavalry+horse)
-- **Phase 2 — fog of war**: see-only-what-you-see, shared team vision,
+- **Phase 2 — fog of war** ✅: see-only-what-you-see, shared team vision,
   last-known-position memory, vision blocked by walls, ambush bonus, scouts'
-  long sight, spectator fog toggle.
+  long sight, spectator fog toggle (V). VisionSystem feeds CommandSystem +
+  TargetingSystem; if a team sees nothing it advances on the nearest enemy spawn.
 - **Phase 3 — bases & respawn**: each team respawns from a base; destroy all
   enemy bases + units to win; leader sends scouts to find bases; signal flares.
 - **Phase 4 — structures & strategy**: barracks/watchtower/walls/gates/depot,
