@@ -291,6 +291,7 @@ Config.Vision = {
 	ForgetRadius = 12, -- reach a last-known spot and see nothing -> forget it
 	AmbushBonus = 1.6, -- damage multiplier when you strike someone who can't see you
 	NearRadius = 14, -- all-round awareness this close (you notice someone adjacent)
+	ShowCones = true, -- attach a visible vision cone to each unit (shown with V)
 }
 
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.

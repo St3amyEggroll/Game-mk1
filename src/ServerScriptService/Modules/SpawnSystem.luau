@@ -13,6 +13,7 @@ local PhysicsService = game:GetService("PhysicsService")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
 local HealthBar = require(script.Parent.HealthBar)
+local AnimationSystem = require(script.Parent.AnimationSystem)
 
 local SpawnSystem = {}
 
@@ -101,6 +102,64 @@ local function addGlow(model, color)
 	highlight.FillTransparency = 0.5
 	highlight.OutlineColor = color
 	highlight.Parent = model
+end
+
+-- A flat outline of the unit's field-of-view on the ground, welded so it turns
+-- with the unit. Created invisible (Transparency = 1); the client reveals it in
+-- fog view (V). Forward for an R6 root is its LookVector (the -Z axis).
+local function attachVisionCone(model, stats, color)
+	if not Config.Vision.ShowCones then
+		return
+	end
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return
+	end
+	local fov = math.rad(stats.FOV or 160)
+	local range = stats.SightRange or 40
+	local groundY = -2.6 -- drop the outline down near the floor
+
+	local cone = Instance.new("Model")
+	cone.Name = "VisionCone"
+
+	local function pointAt(angle)
+		return Vector3.new(-math.sin(angle) * range, groundY, -math.cos(angle) * range)
+	end
+
+	local function segment(a, b)
+		local mid = (a + b) / 2
+		local len = math.max(0.1, (b - a).Magnitude)
+		local part = Instance.new("Part")
+		part.Size = Vector3.new(0.25, 0.06, len)
+		part.CanCollide = false
+		part.CanQuery = false
+		part.Massless = true
+		part.CastShadow = false
+		part.Material = Enum.Material.Neon
+		part.Color = color
+		part.Transparency = 1 -- hidden until the client reveals it in fog view
+		part.CollisionGroup = UNITS_GROUP
+		part.CFrame = hrp.CFrame * CFrame.lookAt(mid, b)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = hrp
+		weld.Part1 = part
+		part.Parent = cone
+		weld.Parent = part
+	end
+
+	local apex = Vector3.new(0, groundY, 0)
+	local segments = 6
+	local prev = pointAt(-fov / 2)
+	segment(apex, prev) -- left edge
+	for i = 1, segments do
+		local angle = -fov / 2 + fov * (i / segments)
+		local cur = pointAt(angle)
+		segment(prev, cur) -- arc
+		prev = cur
+	end
+	segment(apex, prev) -- right edge
+
+	cone.Parent = model
 end
 
 -- The slot offset (centered grid) for the Nth unit in the army.
@@ -207,12 +266,14 @@ local function buildUnit(teamKey, teamData, slot, pivot, offset, assets, unitsFo
 
 	model.Parent = unitsFolder
 	HealthBar.Attach(model, humanoid, slot.IsLeader, iconFor(slot))
+	attachVisionCone(model, stats, teamData.Color)
 
 	local unit = UnitManager.Register(model, teamKey, slot.Type)
 	unit.IsLeader = slot.IsLeader
 	unit.Role = slot.Role
 	unit.GuardIndex = slot.GuardIndex or 0
 	unit.FormationOffset = offset or Vector3.zero
+	AnimationSystem.Setup(unit)
 	return unit
 end
 

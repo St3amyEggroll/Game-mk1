@@ -305,10 +305,17 @@ local function applyFog()
 		return
 	end
 	for _, model in unitsFolder:GetChildren() do
+		local cone = model:FindFirstChild("VisionCone")
 		local ghost = fogView and (model:GetAttribute("Spotted") == false)
 		for _, part in model:GetDescendants() do
 			if part:IsA("BasePart") then
-				part.LocalTransparencyModifier = ghost and 0.78 or 0
+				if cone and part:IsDescendantOf(cone) then
+					-- Vision cone: revealed only in fog view.
+					part.Transparency = fogView and 0.5 or 1
+				else
+					-- Unit body: ghosted if no enemy can currently see it.
+					part.LocalTransparencyModifier = ghost and 0.78 or 0
+				end
 			end
 		end
 	end

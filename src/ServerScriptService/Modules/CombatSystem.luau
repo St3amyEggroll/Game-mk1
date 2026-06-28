@@ -20,6 +20,7 @@ local NavigationSystem = require(script.Parent.NavigationSystem)
 local HazardSystem = require(script.Parent.HazardSystem)
 local EffectsSystem = require(script.Parent.EffectsSystem)
 local BaseSystem = require(script.Parent.BaseSystem)
+local AnimationSystem = require(script.Parent.AnimationSystem)
 
 local CombatSystem = {}
 
@@ -114,6 +115,7 @@ local function dealHit(unit, target, now, state)
 	target.Humanoid:TakeDamage(attackDamage(unit, state, target))
 	target.AttackedBy = unit
 	target.AttackedAt = now
+	AnimationSystem.PlayAttack(unit)
 	return true
 end
 
@@ -165,6 +167,7 @@ local function assault(unit, state, allies, now)
 		if now - unit.LastAttack >= unit.Stats.AttackCooldown then
 			unit.LastAttack = now
 			BaseSystem.Damage(base, unit.Stats.AttackDamage)
+			AnimationSystem.PlayAttack(unit)
 		end
 	else
 		moveTo(unit, base.Position, allies, now)
