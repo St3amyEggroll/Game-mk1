@@ -120,11 +120,43 @@ Config.Composition = {
 	{ Type = "Scout", Count = 3 },
 }
 
--- Cavalry hit-and-run: charge in, strike, then peel away and re-charge instead
--- of getting bogged down in the melee.
-Config.Cavalry = {
-	PeelTime = 1.2, -- seconds spent riding away after a strike
-	PeelDistance = 35, -- how far they pull back before wheeling around
+-- Economy: workers chop trees for WOOD; bases spend wood to grow workers, pump
+-- troops, and upgrade. The base AI decides what to build based on its wood.
+Config.Economy = {
+	StartingWorkers = 2, -- each base starts with this many workers
+	StartingWood = 50,
+	MaxWorkers = 10,
+	CarryCapacity = 14, -- wood a worker hauls per trip
+	MinePerTick = 5, -- wood chopped per mine tick
+	MineInterval = 0.4, -- seconds between mine ticks
+	DepositRange = 14, -- how close to base to drop off wood
+	DecisionInterval = 0.8, -- how often the base AI makes a build decision
+
+	-- Cost in wood to produce each thing.
+	WorkerCost = 18,
+	Costs = {
+		Rifleman = 15,
+		Gunner = 30,
+		Assault = 20,
+		Scout = 14,
+	},
+
+	Trees = {
+		Count = 36, -- trees scattered on the map
+		Wood = 160, -- wood per tree before it's used up
+		Scatter = 230, -- radius around map center to scatter them
+		MinFromBase = 38, -- keep them clear of the bases
+	},
+
+	Upgrade = {
+		BaseCost = 70, -- wood; actual cost = BaseCost * (level + 1)
+		MaxLevel = 5,
+		HealthPerLevel = 350, -- each upgrade adds this much base HP (and heals)
+		WorkerTargetBase = 4, -- worker goal at level 0 ...
+		WorkerTargetPerLevel = 2, -- ... +this per upgrade (capped at MaxWorkers)
+		TroopCapBase = 18, -- army cap at level 0 ...
+		TroopCapPerLevel = 10, -- ... +this per upgrade
+	},
 }
 
 -- Stamina (no UI). Sprinting/charging/fleeing drains it; walking regenerates.

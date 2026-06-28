@@ -138,7 +138,7 @@ local function createBaseModel(teamKey, teamData, groundPos)
 	fill.BorderSizePixel = 0
 	fill.Parent = bg
 
-	return model, fill
+	return model, fill, label
 end
 
 function BaseSystem.Reset()
@@ -161,8 +161,6 @@ local function ringSpot(basePos, index, radius)
 end
 
 function BaseSystem.SpawnBases()
-	buildCycle()
-
 	local markers, sum, n = {}, Vector3.zero, 0
 	for team, data in Config.Teams do
 		local marker = Workspace:FindFirstChild(data.SpawnMarker)
@@ -180,8 +178,8 @@ function BaseSystem.SpawnBases()
 			local dir = mp - center
 			dir = dir.Magnitude > 0.1 and dir.Unit or Vector3.new(0, 0, 1)
 			local pos = mp + dir * Config.Base.SetbackFromSpawn
-			local model, fill = createBaseModel(team, data, pos)
-			BaseSystem.Bases[team] = {
+			local model, fill, label = createBaseModel(team, data, pos)
+			local base = {
 				Team = team,
 				Model = model,
 				Position = pos, -- ground-level reference for distance/attacks/spawns
@@ -189,14 +187,16 @@ function BaseSystem.SpawnBases()
 				MaxHealth = Config.Base.Health,
 				Alive = true,
 				Fill = fill,
+				Label = label,
+				Wood = Config.Economy.StartingWood,
+				Level = 0,
 			}
-			lastRespawn[team] = 0
-			lastWorkerRespawn[team] = 0
-			respawnCursor[team] = 0
+			BaseSystem.Bases[team] = base
 			BaseSystem.Discovered[team] = {}
+			BaseSystem.UpdateLabel(base)
 
-			-- Starting workers around the base.
-			for i = 1, Config.Workers.CountPerTeam do
+			-- Each base starts with a couple of workers.
+			for i = 1, Config.Economy.StartingWorkers do
 				SpawnSystem.SpawnOne(team, "Worker", ringSpot(pos, i, 17))
 			end
 		end
@@ -303,28 +303,30 @@ function BaseSystem.Update(now)
 		end
 	end
 
-	-- Trickle reinforcements + maintain workers from living bases.
-	local cap = teamCap()
-	for team, base in BaseSystem.Bases do
-		if base.Alive then
-			-- Reinforcements: more living workers = shorter timer (the economy).
-			local w = workers[team] or 0
-			local interval = Config.Base.RespawnInterval / (1 + w * Config.Workers.RespawnBoost)
-			if (counts[team] or 0) < cap and now - (lastRespawn[team] or 0) >= interval then
-				lastRespawn[team] = now
-				respawnCursor[team] = (respawnCursor[team] % #respawnCycle) + 1
-				local unitType = respawnCycle[respawnCursor[team]]
-				-- Outside the base footprint (core is 16 wide) so they don't spawn inside it.
-				SpawnSystem.SpawnOne(team, unitType, ringSpot(base.Position, respawnCursor[team], 15))
-			end
+	-- (Spawning + worker maintenance now live in EconomySystem, gated by wood.)
+end
 
-			-- Replace lost workers slowly.
-			if w < Config.Workers.CountPerTeam and now - (lastWorkerRespawn[team] or 0) >= WORKER_RESPAWN_INTERVAL then
-				lastWorkerRespawn[team] = now
-				SpawnSystem.SpawnOne(team, "Worker", ringSpot(base.Position, w + 1, 17))
-			end
-		end
+function BaseSystem.UpdateLabel(base)
+	if not base or not base.Label then
+		return
 	end
+	local name = Config.Teams[base.Team] and Config.Teams[base.Team].Name or base.Team
+	base.Label.Text = string.format("%s %s  Lv%d  🪵%d", Config.Base.Icon, name, base.Level, math.floor(base.Wood))
+end
+
+function BaseSystem.Upgrade(base)
+	if not base or not base.Alive then
+		return
+	end
+	base.Level += 1
+	base.MaxHealth += Config.Economy.Upgrade.HealthPerLevel
+	base.Health = base.MaxHealth
+	if base.Fill then
+		base.Fill.Size = UDim2.fromScale(1, 1)
+		base.Fill.BackgroundColor3 = healthColor(1)
+	end
+	Signals.Fire({ kind = "upgrade", team = base.Team, level = base.Level })
+	BaseSystem.UpdateLabel(base)
 end
 
 return BaseSystem

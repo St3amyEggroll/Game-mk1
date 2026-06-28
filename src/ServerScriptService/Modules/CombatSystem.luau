@@ -22,8 +22,13 @@ local EffectsSystem = require(script.Parent.EffectsSystem)
 local BaseSystem = require(script.Parent.BaseSystem)
 local AnimationSystem = require(script.Parent.AnimationSystem)
 local SpatialGrid = require(script.Parent.SpatialGrid)
+local EconomySystem = require(script.Parent.EconomySystem)
 
 local CombatSystem = {}
+
+local function horizontalDist(a, b)
+	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+end
 
 function CombatSystem.RefreshObstacleFilter()
 	NavigationSystem.Refresh()
@@ -290,15 +295,50 @@ local function scoutAct(unit, now, state)
 	end
 end
 
--- Worker: non-combat; mills near the base.
+-- Worker: chop the nearest tree, haul wood back to base, repeat. Non-combat.
 local function workerAct(unit, now, state)
 	local basePos = (state and state.OwnBasePos) or unit.Root.Position
-	if not unit.WorkTarget or (unit.WorkTarget - unit.Root.Position).Magnitude < 6 then
-		local angle = math.random() * math.pi * 2
-		local r = math.random() * Config.Workers.WanderRadius
-		unit.WorkTarget = basePos + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+	unit.Carry = unit.Carry or 0
+
+	-- Full load -> return to base and deposit.
+	if unit.Carry >= Config.Economy.CarryCapacity then
+		if horizontalDist(unit.Root.Position, basePos) <= Config.Economy.DepositRange then
+			EconomySystem.Deposit(unit.Team, unit.Carry)
+			unit.Carry = 0
+			unit.TargetTree = nil
+		else
+			moveTo(unit, basePos, now)
+		end
+		return
 	end
-	moveTo(unit, unit.WorkTarget, now)
+
+	-- Find a tree with wood.
+	if not unit.TargetTree or unit.TargetTree.wood <= 0 then
+		unit.TargetTree = EconomySystem.NearestTree(unit.Root.Position)
+	end
+	local tree = unit.TargetTree
+	if not tree then
+		-- Nothing to chop: wait near base.
+		if horizontalDist(unit.Root.Position, basePos) > 20 then
+			moveTo(unit, basePos, now)
+		end
+		return
+	end
+
+	if horizontalDist(unit.Root.Position, tree.pos) <= 6 then
+		unit.Humanoid:Move(Vector3.zero)
+		faceToward(unit, tree.pos)
+		if now - (unit.LastMine or 0) >= Config.Economy.MineInterval then
+			unit.LastMine = now
+			unit.Carry += EconomySystem.Mine(tree, Config.Economy.MinePerTick)
+			AnimationSystem.PlayAttack(unit) -- chopping swing
+			if tree.wood <= 0 then
+				unit.TargetTree = nil
+			end
+		end
+	else
+		moveTo(unit, tree.pos, now)
+	end
 end
 
 -- ---- dispatch --------------------------------------------------------------

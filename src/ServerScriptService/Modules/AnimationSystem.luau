@@ -11,9 +11,21 @@
 
 local AnimationSystem = {}
 
--- Roblox's default R6 animations (free to load).
-local WALK_ID = "rbxassetid://180426354"
-local IDLE_ID = "rbxassetid://180435571"
+-- Roblox's default animations (free to load). The IDs differ by rig type, so we
+-- pick the set that matches each NPC's Humanoid.RigType (R6 vs R15) -- using the
+-- wrong set is the usual reason "animations don't play".
+local SETS = {
+	[Enum.HumanoidRigType.R6] = {
+		walk = "rbxassetid://180426354",
+		idle = "rbxassetid://180435571",
+	},
+	[Enum.HumanoidRigType.R15] = {
+		walk = "rbxassetid://507777826",
+		idle = "rbxassetid://507766666",
+	},
+}
+
+local logged = false
 
 local function loadTrack(animator, id)
 	local anim = Instance.new("Animation")
@@ -39,8 +51,9 @@ function AnimationSystem.Setup(unit)
 		animator.Parent = humanoid
 	end
 
-	local walk = loadTrack(animator, WALK_ID)
-	local idle = loadTrack(animator, IDLE_ID)
+	local set = SETS[humanoid.RigType] or SETS[Enum.HumanoidRigType.R6]
+	local walk = loadTrack(animator, set.walk)
+	local idle = loadTrack(animator, set.idle)
 	if walk then
 		walk.Looped = true
 	end
@@ -50,6 +63,16 @@ function AnimationSystem.Setup(unit)
 	end
 
 	unit.Anim = { walk = walk, idle = idle, state = "idle" }
+
+	-- One-time diagnostic so you can confirm in Output what's happening.
+	if not logged then
+		logged = true
+		print(("[AnimationSystem] rig=%s  walkLoaded=%s  idleLoaded=%s"):format(
+			tostring(humanoid.RigType),
+			tostring(walk ~= nil),
+			tostring(idle ~= nil)
+		))
+	end
 end
 
 -- Called each tick: pick walk vs idle from the humanoid's actual movement. This

@@ -195,6 +195,9 @@ signals.OnClientEvent:Connect(function(payload)
 	elseif payload.kind == "baseDown" then
 		local name = Config.Teams[payload.team] and Config.Teams[payload.team].Name or "A"
 		addFeedLine(("🏰 %s base DESTROYED!"):format(name), teamColor(payload.team), true)
+	elseif payload.kind == "upgrade" then
+		local name = Config.Teams[payload.team] and Config.Teams[payload.team].Name or "A"
+		addFeedLine(("⬆ %s base upgraded to Lv%d"):format(name, payload.level), teamColor(payload.team), false)
 	elseif payload.kind == "result" then
 		if payload.winner then
 			local team = Config.Teams[payload.winner]
