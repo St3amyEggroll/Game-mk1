@@ -115,6 +115,7 @@ function VisionSystem.Update(now)
 						entry.pos = enemyPos
 						entry.visible = true
 						entry.lastSeen = now
+						entry.health = enemy.Humanoid.Health -- remembered strength (no peeking after)
 						enemy.SeenBy[teamKey] = true
 					else
 						local entry = knowledge[enemy]

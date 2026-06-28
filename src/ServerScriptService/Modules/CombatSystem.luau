@@ -171,6 +171,23 @@ local function assault(unit, state, allies, now)
 	end
 end
 
+-- Worker: non-combat. Mill around the base; bolt home if a known enemy is near.
+local function workerAct(unit, now, state, allies)
+	local basePos = (state and state.OwnBasePos) or unit.Root.Position
+	local nearest, dist = nearestEnemy(state, unit.Root.Position)
+	if nearest and dist < Config.Workers.FleeRange then
+		unit.WantsSprint = true
+		moveTo(unit, basePos, allies, now) -- run home
+		return
+	end
+	if not unit.WorkTarget or (unit.WorkTarget - unit.Root.Position).Magnitude < 6 then
+		local angle = math.random() * math.pi * 2
+		local r = math.random() * Config.Workers.WanderRadius
+		unit.WorkTarget = basePos + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
+	end
+	moveTo(unit, unit.WorkTarget, allies, now)
+end
+
 -- ---- per-role behavior -----------------------------------------------------
 
 local function leaderAct(unit, now, state, allies)
@@ -353,6 +370,11 @@ function CombatSystem.Act(unit, now, state)
 
 	if unit.Role == "Cavalry" then
 		cavalryAct(unit, now, state, allies)
+		return
+	end
+
+	if unit.Role == "Worker" then
+		workerAct(unit, now, state, allies)
 		return
 	end
 

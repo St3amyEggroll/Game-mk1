@@ -89,6 +89,16 @@ Config.UnitTypes = {
 		Priority = 1,
 		SightRange = 110, -- the longest eyes on the field (Phase 2)
 	},
+	Worker = {
+		RigName = "WorkerUnit",
+		MaxHealth = 50,
+		WalkSpeed = 14,
+		AttackRange = 0, -- non-combat
+		AttackDamage = 0,
+		AttackCooldown = 1,
+		Priority = 1.4, -- juicy raid target: killing workers cripples the economy
+		SightRange = 35,
+	},
 }
 
 -- How units pick a target (threat assessment + priorities). Higher weight =
@@ -241,7 +251,18 @@ Config.Icons = {
 	Archer = "🏹",
 	Cavalry = "🐎",
 	Scout = "🔭",
+	Worker = "⛏️",
 	Leader = "👑",
+}
+
+-- Workers: non-combat units that hang around the base and FLEE from enemies.
+-- More living workers = faster reinforcements, so raiding an enemy's workers
+-- slows their whole army's regen. They're a high-value target for that reason.
+Config.Workers = {
+	CountPerTeam = 4,
+	RespawnBoost = 0.13, -- each living worker shortens the reinforcement timer
+	FleeRange = 42, -- run from a known enemy within this range
+	WanderRadius = 24, -- how far from base they mill about while working
 }
 
 -- Bases: each team has one. It respawns reinforcements while it stands; destroy

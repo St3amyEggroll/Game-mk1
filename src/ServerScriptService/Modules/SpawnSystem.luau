@@ -163,6 +163,8 @@ local function roleForType(unitType)
 		return "Archer"
 	elseif unitType == "Scout" then
 		return "Scout"
+	elseif unitType == "Worker" then
+		return "Worker"
 	end
 	return "Main"
 end

@@ -105,8 +105,22 @@ Two optimization habits are baked in from day one:
   = just anchored parts you place (pathfinding routes around, vision is blocked).
   Deferred: barracks / supply depot (needs an economy), explicit rush/raid orders.
 
+### Fog: remembered strength (no live peeking)
+A team remembers an enemy's position AND health *as of the last sighting*. It no
+longer reads an unseen unit's real current HP, so partial intel can mislead the
+leader's read of the battle. Remaining dials (not yet done): last-known position
+drift/uncertainty; not instantly knowing an unseen unit died; spread-out search.
+
+### Workers & economy (Phase 4)
+- Each team has **Workers** (`Config.Workers`): non-combat units that mill around
+  the base and **flee** from known enemies.
+- **More living workers = faster reinforcements.** Raiding an enemy's workers
+  slows their whole army's regen — so scouting + cavalry raids matter
+  economically. Workers are a high-priority target for exactly this reason.
+
 ### Optimization (Milestone 4, still pending)
-Spatial grid for targeting/vision + flow-field movement to reach 100v100.
+Spatial grid for targeting/vision + flow-field movement to reach 100v100. This
+is the last big piece, and it's getting more urgent as unit counts climb.
 
 ### Deferred AI
 - Commit reserves (a held-back squad sent to a breaking flank).

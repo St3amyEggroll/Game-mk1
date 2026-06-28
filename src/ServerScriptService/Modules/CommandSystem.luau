@@ -80,8 +80,9 @@ local function chooseFocus(knownList, knowledge, allyCenter)
 	end
 	local best, bestScore = nil, math.huge
 	for _, e in knownList do
-		local dist = (knownPos(knowledge[e], e) - allyCenter).Magnitude
-		local score = dist + e.Humanoid.Health - (e.Stats.Priority or 1) * 20
+		local entry = knowledge[e]
+		local dist = (knownPos(entry, e) - allyCenter).Magnitude
+		local score = dist + (entry.health or 0) - (e.Stats.Priority or 1) * 20
 		if score < bestScore then
 			bestScore = score
 			best = e
@@ -169,7 +170,7 @@ function CommandSystem.Update()
 			enemyHealth = 0
 			for _, e in knownList do
 				sum += knownPos(knowledge[e], e)
-				enemyHealth += e.Humanoid.Health
+				enemyHealth += (knowledge[e].health or 0) -- remembered strength, not live
 			end
 			enemyCenter = sum / #knownList
 		else
@@ -179,6 +180,7 @@ function CommandSystem.Update()
 
 		-- Leader objective: defend home if a KNOWN enemy is near our own base.
 		local ownBase = BaseSystem.Bases[teamKey]
+		state.OwnBasePos = ownBase and ownBase.Position or allyCenter
 		local objective = "Assault"
 		if ownBase and ownBase.Alive then
 			for _, e in knownList do

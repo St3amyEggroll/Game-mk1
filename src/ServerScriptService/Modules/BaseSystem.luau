@@ -28,8 +28,10 @@ BaseSystem.Bases = {} -- [team] = base
 BaseSystem.Discovered = {} -- [team] = { [enemyTeam] = baseRef }
 
 local lastRespawn = {}
+local lastWorkerRespawn = {}
 local respawnCursor = {}
 local respawnCycle = {}
+local WORKER_RESPAWN_INTERVAL = 4
 
 local function buildCycle()
 	respawnCycle = {}
@@ -148,7 +150,14 @@ function BaseSystem.Reset()
 	BaseSystem.Bases = {}
 	BaseSystem.Discovered = {}
 	lastRespawn = {}
+	lastWorkerRespawn = {}
 	respawnCursor = {}
+end
+
+-- A point on a ring around the base (for spawning reinforcements/workers).
+local function ringSpot(basePos, index, radius)
+	local angle = index * 1.5
+	return basePos + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
 end
 
 function BaseSystem.SpawnBases()
@@ -182,8 +191,14 @@ function BaseSystem.SpawnBases()
 				Fill = fill,
 			}
 			lastRespawn[team] = 0
+			lastWorkerRespawn[team] = 0
 			respawnCursor[team] = 0
 			BaseSystem.Discovered[team] = {}
+
+			-- Starting workers around the base.
+			for i = 1, Config.Workers.CountPerTeam do
+				SpawnSystem.SpawnOne(team, "Worker", ringSpot(pos, i, 17))
+			end
 		end
 	end
 end
@@ -247,8 +262,9 @@ function BaseSystem.Damage(base, amount)
 end
 
 function BaseSystem.Update(now)
-	-- Snapshot living units per team + non-leader counts.
-	local byTeam, counts = {}, {}
+	-- Snapshot living units per team: soldier count (for the cap) + worker count
+	-- (drives reinforcement speed) tracked separately.
+	local byTeam, counts, workers = {}, {}, {}
 	for _, unit in UnitManager.Units do
 		if unit.Alive then
 			local list = byTeam[unit.Team]
@@ -257,7 +273,9 @@ function BaseSystem.Update(now)
 				byTeam[unit.Team] = list
 			end
 			table.insert(list, unit)
-			if not unit.IsLeader then
+			if unit.Type == "Worker" then
+				workers[unit.Team] = (workers[unit.Team] or 0) + 1
+			elseif not unit.IsLeader then
 				counts[unit.Team] = (counts[unit.Team] or 0) + 1
 			end
 		end
@@ -285,17 +303,26 @@ function BaseSystem.Update(now)
 		end
 	end
 
-	-- Trickle reinforcements from living bases, up to the army cap.
+	-- Trickle reinforcements + maintain workers from living bases.
 	local cap = teamCap()
 	for team, base in BaseSystem.Bases do
-		if base.Alive and (counts[team] or 0) < cap and now - (lastRespawn[team] or 0) >= Config.Base.RespawnInterval then
-			lastRespawn[team] = now
-			respawnCursor[team] = (respawnCursor[team] % #respawnCycle) + 1
-			local unitType = respawnCycle[respawnCursor[team]]
-			local angle = respawnCursor[team] * 1.3
-			-- Outside the base footprint (core is 16 wide) so they don't spawn inside it.
-			local spot = base.Position + Vector3.new(math.cos(angle) * 15, 0, math.sin(angle) * 15)
-			SpawnSystem.SpawnOne(team, unitType, spot)
+		if base.Alive then
+			-- Reinforcements: more living workers = shorter timer (the economy).
+			local w = workers[team] or 0
+			local interval = Config.Base.RespawnInterval / (1 + w * Config.Workers.RespawnBoost)
+			if (counts[team] or 0) < cap and now - (lastRespawn[team] or 0) >= interval then
+				lastRespawn[team] = now
+				respawnCursor[team] = (respawnCursor[team] % #respawnCycle) + 1
+				local unitType = respawnCycle[respawnCursor[team]]
+				-- Outside the base footprint (core is 16 wide) so they don't spawn inside it.
+				SpawnSystem.SpawnOne(team, unitType, ringSpot(base.Position, respawnCursor[team], 15))
+			end
+
+			-- Replace lost workers slowly.
+			if w < Config.Workers.CountPerTeam and now - (lastWorkerRespawn[team] or 0) >= WORKER_RESPAWN_INTERVAL then
+				lastWorkerRespawn[team] = now
+				SpawnSystem.SpawnOne(team, "Worker", ringSpot(base.Position, w + 1, 17))
+			end
 		end
 	end
 end
