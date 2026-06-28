@@ -5,8 +5,8 @@
 	omniscient truth. If a team can't see any enemies it advances toward the
 	nearest enemy spawn to make contact.
 
-	Plan fields: Stance (Aggressive/Balanced/Defensive/Retreat), Order
-	(Advance/Engage/Retreat/Hold), RallyPoint, HoldPoint, RearPoint, FlankPoint,
+	Plan fields: Stance (Aggressive/Balanced/Defensive -- no retreating), Order
+	(Advance/Engage/Hold), RallyPoint, HoldPoint, FlankPoint,
 	FocusTarget, LeaderThreatened, AllyCenter/EnemyCenter, plus Known (the
 	knowledge map) and KnownList (alive known enemies) the other systems read.
 ]]
@@ -201,11 +201,10 @@ function CommandSystem.Update()
 
 		-- Read the battle from what we know (so unseen reinforcements surprise us).
 		local ratio = totalHealth(allies) / math.max(1, enemyHealth)
-		local leaderAlive = state.Leader ~= nil
+		-- No retreating (it caused the army to flee into a pile). A losing army
+		-- turtles up (Defensive) and fights instead of running.
 		local stance
-		if ratio <= Config.Command.RetreatRatio or (not leaderAlive and ratio < 1) then
-			stance = "Retreat"
-		elseif ratio <= Config.Command.DefensiveRatio then
+		if ratio <= Config.Command.DefensiveRatio then
 			stance = "Defensive"
 		elseif ratio >= Config.Command.AggressiveRatio then
 			stance = "Aggressive"
@@ -238,9 +237,7 @@ function CommandSystem.Update()
 		state.FlankPoint = enemyCenter + side * Config.Command.FlankWidth
 
 		local frontGap = (enemyCenter - allyCenter).Magnitude
-		if stance == "Retreat" then
-			state.Order = "Retreat"
-		elseif stance == "Defensive" then
+		if stance == "Defensive" then
 			state.Order = (frontGap > Config.Command.HoldDistance + Config.Command.EngageRange) and "Advance"
 				or "Engage"
 		else

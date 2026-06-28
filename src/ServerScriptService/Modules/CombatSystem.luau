@@ -174,15 +174,10 @@ local function assault(unit, state, allies, now)
 	end
 end
 
--- Worker: non-combat. Mill around the base; bolt home if a known enemy is near.
+-- Worker: non-combat. Mills around the base. (No fleeing -- if raiders reach
+-- the workers they just get cut down, which is the economic hit.)
 local function workerAct(unit, now, state, allies)
 	local basePos = (state and state.OwnBasePos) or unit.Root.Position
-	local nearest, dist = nearestEnemy(state, unit.Root.Position)
-	if nearest and dist < Config.Workers.FleeRange then
-		unit.WantsSprint = true
-		moveTo(unit, basePos, allies, now) -- run home
-		return
-	end
 	if not unit.WorkTarget or (unit.WorkTarget - unit.Root.Position).Magnitude < 6 then
 		local angle = math.random() * math.pi * 2
 		local r = math.random() * Config.Workers.WanderRadius
@@ -197,11 +192,9 @@ local function leaderAct(unit, now, state, allies)
 	if state and state.AllyCenter and state.EnemyCenter then
 		local back = state.AllyCenter - state.EnemyCenter
 		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
-		local danger = state.LeaderThreatened or state.Stance == "Defensive" or state.Stance == "Retreat"
+		local danger = state.LeaderThreatened or state.Stance == "Defensive"
 		local standoff = danger and Config.Leader.RetreatStandoff or Config.Leader.Standoff
-		local goal = state.Stance == "Retreat" and state.RearPoint
-			or (state.AllyCenter + back * standoff)
-		moveTo(unit, goal, allies, now)
+		moveTo(unit, state.AllyCenter + back * standoff, allies, now)
 	end
 
 	local nearest = nearestEnemy(state, unit.Root.Position)
@@ -224,7 +217,7 @@ local function guardAct(unit, now, state, allies)
 		return
 	end
 
-	local ringUp = state.LeaderThreatened or state.Stance == "Defensive" or state.Stance == "Retreat"
+	local ringUp = state.LeaderThreatened or state.Stance == "Defensive"
 	if ringUp then
 		local count = math.max(1, Config.Leader.GuardSquadSize)
 		local angle = (unit.GuardIndex / count) * math.pi * 2
@@ -325,10 +318,9 @@ end
 
 -- Cavalry: ride with the army, then charge -> strike -> peel away -> re-charge.
 local function cavalryAct(unit, now, state, allies)
-	if state and (state.Order == "Advance" or state.Order == "Retreat") then
-		local goal = state.Order == "Retreat" and (state.RearPoint or state.AllyCenter)
-			or (state.RallyPoint or state.AllyCenter)
-		moveTo(unit, (goal or unit.Root.Position) + unit.FormationOffset, allies, now)
+	if state and state.Order == "Advance" then
+		local goal = state.RallyPoint or state.AllyCenter or unit.Root.Position
+		moveTo(unit, goal + unit.FormationOffset, allies, now)
 		return
 	end
 
@@ -378,20 +370,6 @@ function CombatSystem.Act(unit, now, state)
 
 	if unit.Role == "Worker" then
 		workerAct(unit, now, state, allies)
-		return
-	end
-
-	if state and state.Order == "Retreat" then
-		if unit.Role == "Guard" then
-			guardAct(unit, now, state, allies)
-		else
-			unit.WantsSprint = true -- run for it (and tire out)
-			moveTo(unit, (state.RearPoint or state.AllyCenter) + unit.FormationOffset, allies, now)
-			local nearest = nearestEnemy(state, unit.Root.Position)
-			if nearest and canStrike(unit, nearest, state) then
-				swingAt(unit, nearest, now, state)
-			end
-		end
 		return
 	end
 

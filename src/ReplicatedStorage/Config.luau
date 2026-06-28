@@ -112,7 +112,7 @@ Config.Targeting = {
 	LeaderPriority = 4, -- the enemy leader is a top target
 	SelfThreatWeight = 40, -- an enemy currently attacking ME
 	LeaderThreatWeight = 55, -- an enemy currently attacking MY leader
-	FocusWeight = 30, -- the leader's called focus target
+	FocusWeight = 12, -- the leader's called focus target (low, so they don't all swarm one)
 	Hysteresis = 20, -- bonus for keeping current target (stops thrashing)
 	ThreatMemory = 3, -- seconds an attacker is remembered as a threat
 }
@@ -173,8 +173,9 @@ Config.Command = {
 	-- Teams hold formation and Advance until enemies get this close, then Engage.
 	EngageRange = 45,
 	-- During Engage, a unit will gang up on the Leader's focus target if it's
-	-- within this range; otherwise it fights whoever's nearest.
-	FocusRange = 55,
+	-- within this range; otherwise it fights whoever's nearest. Kept fairly
+	-- short so the army spreads across the front instead of swarming one target.
+	FocusRange = 35,
 	-- Shape of the marching formation.
 	FormationSpacing = 5, -- studs between soldiers
 	FormationColumns = 6, -- soldiers per row
@@ -185,8 +186,9 @@ Config.Command = {
 	MoraleDamageBonus = 1.3, -- +30% damage near the leader
 	LeaderlessDamagePenalty = 0.75, -- -25% damage with no leader alive
 
-	-- How hard units avoid piling on top of each other while moving.
-	SeparationRadius = 4,
+	-- How hard units avoid piling on top of each other. Set above melee reach so
+	-- they hold a spaced line in combat instead of stacking into a pile.
+	SeparationRadius = 7,
 
 	-- Flanking: a squad peels off ONLY once the front lines are engaged, then
 	-- drives at the enemy's rear / leader (pour through the gap).
