@@ -208,12 +208,6 @@ signals.OnClientEvent:Connect(function(payload)
 	end
 end)
 
--- TEMP: spectator camera disabled (clicker mode). Set this back to true to undo.
-local SPECTATOR_CAMERA_ENABLED = false
-if not SPECTATOR_CAMERA_ENABLED then
-	return
-end
-
 -- -------------------------------------------------------- Spectator camera ---
 -- Free-fly: WASD to move, hold Right Mouse to look, Q/E down/up, Shift = fast.
 -- Press F to toggle an auto-follow cam that frames the whole battle.
