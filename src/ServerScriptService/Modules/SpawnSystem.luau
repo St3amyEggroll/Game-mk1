@@ -264,6 +264,7 @@ local function buildUnit(teamKey, teamData, slot, pivot, offset, assets, unitsFo
 	humanoid.Health = maxHealth
 	humanoid.WalkSpeed = stats.WalkSpeed
 
+	model:SetAttribute("Spotted", false) -- so fog view can ghost never-seen units
 	model.Parent = unitsFolder
 	HealthBar.Attach(model, humanoid, slot.IsLeader, iconFor(slot))
 	attachVisionCone(model, stats, teamData.Color)

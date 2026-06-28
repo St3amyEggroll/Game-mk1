@@ -21,6 +21,9 @@ local function loadTrack(animator, id)
 	local ok, track = pcall(function()
 		return animator:LoadAnimation(anim)
 	end)
+	if not ok then
+		warn("[AnimationSystem] Failed to load animation", id, track)
+	end
 	return ok and track or nil
 end
 
@@ -29,6 +32,7 @@ function AnimationSystem.Setup(unit)
 	if not humanoid then
 		return
 	end
+	-- Animator must be created server-side to replicate NPC animations.
 	local animator = humanoid:FindFirstChildOfClass("Animator")
 	if not animator then
 		animator = Instance.new("Animator")
@@ -45,27 +49,35 @@ function AnimationSystem.Setup(unit)
 		idle:Play(0.2)
 	end
 
-	-- Running fires with the current movement speed whenever it changes.
-	humanoid.Running:Connect(function(speed)
-		if not unit.Alive then
-			return
+	unit.Anim = { walk = walk, idle = idle, state = "idle" }
+end
+
+-- Called each tick: pick walk vs idle from the humanoid's actual movement. This
+-- is deterministic (no reliance on the Running event, which can miss switches
+-- around MoveTo timeouts / rapid start-stop).
+function AnimationSystem.Update(unit)
+	local anim = unit.Anim
+	if not anim then
+		return
+	end
+	local moving = unit.Humanoid.MoveDirection.Magnitude > 0.1
+	if moving and anim.state ~= "walk" then
+		anim.state = "walk"
+		if anim.walk then
+			anim.walk:Play(0.15)
 		end
-		if speed > 0.5 then
-			if walk and not walk.IsPlaying then
-				walk:Play(0.15)
-			end
-			if idle then
-				idle:Stop(0.15)
-			end
-		else
-			if idle and not idle.IsPlaying then
-				idle:Play(0.15)
-			end
-			if walk then
-				walk:Stop(0.15)
-			end
+		if anim.idle then
+			anim.idle:Stop(0.15)
 		end
-	end)
+	elseif not moving and anim.state ~= "idle" then
+		anim.state = "idle"
+		if anim.idle then
+			anim.idle:Play(0.15)
+		end
+		if anim.walk then
+			anim.walk:Stop(0.15)
+		end
+	end
 end
 
 -- A quick chop with the right arm (procedural, no uploaded asset needed).

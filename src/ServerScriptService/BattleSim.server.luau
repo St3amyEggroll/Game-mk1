@@ -114,6 +114,7 @@ local TargetingSystem = require(Modules.TargetingSystem)
 local CombatSystem = require(Modules.CombatSystem)
 local HazardSystem = require(Modules.HazardSystem)
 local StaminaSystem = require(Modules.StaminaSystem)
+local AnimationSystem = require(Modules.AnimationSystem)
 local Signals = require(Modules.Signals)
 
 -- Survivor count per team, for the HUD scoreboard.
@@ -191,6 +192,7 @@ local function runOneBattle()
 				TargetingSystem.UpdateTarget(unit, state, now)
 				CombatSystem.Act(unit, now, state)
 				StaminaSystem.Update(unit, Config.SimTick)
+				AnimationSystem.Update(unit)
 			end
 		end
 
