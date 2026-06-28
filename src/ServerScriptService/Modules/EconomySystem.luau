@@ -82,12 +82,13 @@ local function plantTree(center, groundY)
 	model.PrimaryPart = trunk
 
 	model.Parent = Workspace
-	return { model = model, pos = pos, wood = Config.Economy.Trees.Wood }
+	return { model = model, pos = pos, wood = Config.Economy.Trees.Wood, generated = true }
 end
 
 function EconomySystem.Reset()
+	-- Only destroy trees WE generated; never touch the user's placed trees.
 	for _, tree in EconomySystem.Trees do
-		if tree.model then
+		if tree.generated and tree.model then
 			tree.model:Destroy()
 		end
 	end
@@ -95,7 +96,39 @@ function EconomySystem.Reset()
 	lastDecision = {}
 end
 
-function EconomySystem.SpawnTrees()
+-- A Workspace object named "tree..." (Model or Part) becomes an endless wood
+-- source -- the user's placed trees aren't depleted or destroyed.
+local function considerTree(obj)
+	if obj.Name:lower():sub(1, 4) ~= "tree" then
+		return
+	end
+	local pos
+	if obj:IsA("Model") then
+		pos = obj:GetPivot().Position
+	elseif obj:IsA("BasePart") then
+		pos = obj.Position
+	else
+		return
+	end
+	table.insert(EconomySystem.Trees, { model = obj, pos = pos, wood = math.huge, infinite = true, generated = false })
+end
+
+function EconomySystem.SetupTrees()
+	-- Prefer trees you've already placed in Workspace (named "tree 2", "tree 5", ...).
+	for _, child in Workspace:GetChildren() do
+		considerTree(child)
+		if child:IsA("Folder") then
+			for _, sub in child:GetChildren() do
+				considerTree(sub)
+			end
+		end
+	end
+	if #EconomySystem.Trees > 0 then
+		print(("[EconomySystem] using %d existing tree(s) from Workspace"):format(#EconomySystem.Trees))
+		return
+	end
+
+	-- None found: scatter our own as a fallback.
 	local center, groundY = mapInfo()
 	local tries = 0
 	while #EconomySystem.Trees < Config.Economy.Trees.Count and tries < Config.Economy.Trees.Count * 4 do
@@ -125,6 +158,9 @@ end
 -- Chop a tree; returns wood actually obtained. A depleted tree is replaced by a
 -- fresh one elsewhere so the economy keeps flowing.
 function EconomySystem.Mine(tree, amount)
+	if tree.infinite then
+		return amount -- placed trees never run out
+	end
 	local got = math.min(amount, tree.wood)
 	tree.wood -= got
 	if tree.wood <= 0 then

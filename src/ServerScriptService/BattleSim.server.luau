@@ -236,7 +236,7 @@ local function runOneBattle()
 	EconomySystem.Reset()
 	SpawnSystem.SpawnAllTeams()
 	BaseSystem.SpawnBases()
-	EconomySystem.SpawnTrees()
+	EconomySystem.SetupTrees()
 	CombatSystem.RefreshObstacleFilter()
 
 	if #UnitManager.Units == 0 then

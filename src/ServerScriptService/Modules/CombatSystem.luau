@@ -325,7 +325,7 @@ local function workerAct(unit, now, state)
 		return
 	end
 
-	if horizontalDist(unit.Root.Position, tree.pos) <= 6 then
+	if horizontalDist(unit.Root.Position, tree.pos) <= 12 then
 		unit.Humanoid:Move(Vector3.zero)
 		faceToward(unit, tree.pos)
 		if now - (unit.LastMine or 0) >= Config.Economy.MineInterval then
