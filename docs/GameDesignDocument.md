@@ -105,6 +105,13 @@ Two optimization habits are baked in from day one:
   = just anchored parts you place (pathfinding routes around, vision is blocked).
   Deferred: barracks / supply depot (needs an economy), explicit rush/raid orders.
 
+### Fog: directional vision (Prison-Architect style)
+Units see a forward **cone** (per-type FOV, default 160°) up to SightRange, plus
+a small all-round **NearRadius** of awareness up close. They're blind to their
+sides/rear, so they can be **flanked or ambushed from outside the cone** (the
+ambush bonus then applies). Scouts have a wide 240° cone; workers a narrow 130°;
+watchtowers see 360° around home. Press **V** to see who's spotted vs hidden.
+
 ### Fog: remembered strength (no live peeking)
 A team remembers an enemy's position AND health *as of the last sighting*. It no
 longer reads an unseen unit's real current HP, so partial intel can mislead the

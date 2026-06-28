@@ -78,33 +78,58 @@ function VisionSystem.Update(now)
 			VisionSystem.TeamKnowledge[teamKey] = knowledge
 		end
 
-		-- Stationary eyes (the team's watchtower) see around home too.
+		-- Build this team's "eyes". Each soldier sees a forward CONE (limited
+		-- field of view -- blind to the sides/rear), plus a small all-round
+		-- NearRadius of awareness up close (someone right next to you). The
+		-- watchtower is a stationary source that sees all around home.
+		local near = Config.Vision.NearRadius
+		local eyes = {}
+		for _, ally in allies do
+			local look = ally.Root.CFrame.LookVector
+			local facing = Vector3.new(look.X, 0, look.Z)
+			facing = facing.Magnitude > 0.01 and facing.Unit or Vector3.new(0, 0, 1)
+			table.insert(eyes, {
+				pos = ally.Root.Position,
+				facing = facing,
+				range = ally.Stats.SightRange,
+				cosHalf = math.cos(math.rad((ally.Stats.FOV or 160) / 2)),
+			})
+		end
 		local sources = BaseSystem.GetVisionSources(teamKey)
 
-		-- Which enemies can anyone (or anything) on this team see right now?
+		local function canSee(enemyPos)
+			for _, eye in eyes do
+				local off = enemyPos - eye.pos
+				local dist = off.Magnitude
+				if dist <= eye.range then
+					local inView = dist <= near -- all-round awareness up close
+					if not inView then
+						local flat = Vector3.new(off.X, 0, off.Z)
+						if flat.Magnitude > 0 and eye.facing:Dot(flat.Unit) >= eye.cosHalf then
+							inView = true -- inside the forward cone
+						end
+					end
+					if inView and NavigationSystem.HasLineOfSight(eye.pos, enemyPos) then
+						return true
+					end
+				end
+			end
+			for _, src in sources do
+				if (enemyPos - src.pos).Magnitude <= src.range
+					and NavigationSystem.HasLineOfSight(src.pos, enemyPos)
+				then
+					return true
+				end
+			end
+			return false
+		end
+
+		-- Which enemies can this team see right now?
 		for otherTeam, list in byTeam do
 			if otherTeam ~= teamKey then
 				for _, enemy in list do
 					local enemyPos = enemy.Root.Position
-					local visible = false
-					for _, ally in allies do
-						if (enemyPos - ally.Root.Position).Magnitude <= ally.Stats.SightRange
-							and NavigationSystem.HasLineOfSight(ally.Root.Position, enemyPos)
-						then
-							visible = true
-							break
-						end
-					end
-					if not visible then
-						for _, src in sources do
-							if (enemyPos - src.pos).Magnitude <= src.range
-								and NavigationSystem.HasLineOfSight(src.pos, enemyPos)
-							then
-								visible = true
-								break
-							end
-						end
-					end
+					local visible = canSee(enemyPos)
 
 					if visible then
 						local entry = knowledge[enemy]

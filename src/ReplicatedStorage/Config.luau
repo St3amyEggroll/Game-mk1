@@ -87,7 +87,8 @@ Config.UnitTypes = {
 		AttackDamage = 10,
 		AttackCooldown = 1.0,
 		Priority = 1,
-		SightRange = 110, -- the longest eyes on the field (Phase 2)
+		SightRange = 110, -- the longest eyes on the field
+		FOV = 240, -- wide-eyed observer (others default to 160)
 	},
 	Worker = {
 		RigName = "WorkerUnit",
@@ -98,6 +99,7 @@ Config.UnitTypes = {
 		AttackCooldown = 1,
 		Priority = 1.4, -- juicy raid target: killing workers cripples the economy
 		SightRange = 35,
+		FOV = 130, -- heads-down, narrow awareness
 	},
 }
 
@@ -278,14 +280,17 @@ Config.Base = {
 	WatchtowerRange = 90,
 }
 
--- Fog of war. Units only know what they (or a teammate) can see; sightings are
--- shared across the team and remembered as "last-known" positions after sight
--- is lost. Vision is blocked by walls/obstacles (not by other units).
+-- Fog of war (Prison-Architect style). Units only know what they (or a teammate)
+-- can see; sightings are shared and remembered as "last-known" positions after
+-- sight is lost. Vision is a forward CONE (per-type FOV, default 160 degrees) up
+-- to SightRange, blocked by walls -- so units are blind to their sides/rear and
+-- can be flanked or ambushed from outside the cone.
 Config.Vision = {
 	Interval = 0.2, -- seconds between vision recomputations (throttled = cheap)
 	Memory = 8, -- seconds a lost enemy is remembered before being forgotten
 	ForgetRadius = 12, -- reach a last-known spot and see nothing -> forget it
 	AmbushBonus = 1.6, -- damage multiplier when you strike someone who can't see you
+	NearRadius = 14, -- all-round awareness this close (you notice someone adjacent)
 }
 
 -- The AI "brain" updates this often (seconds). 0.1 = 10 times a second.
