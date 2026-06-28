@@ -16,6 +16,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Config"))
+local SpatialGrid = require(script.Parent.SpatialGrid)
 
 local TargetingSystem = {}
 
@@ -41,13 +42,12 @@ local function believedPos(known, enemy)
 end
 
 function TargetingSystem.UpdateTarget(unit, state, now)
-	local knownList = state and state.KnownList
-	if not knownList or #knownList == 0 then
+	local known = state and state.Known
+	if not known then
 		unit.Target = nil -- we don't know about anyone to fight
 		return
 	end
 
-	local known = state.Known
 	local W = Config.Targeting
 	local pos = unit.Root.Position
 	local leader = state.Leader
@@ -70,19 +70,23 @@ function TargetingSystem.UpdateTarget(unit, state, now)
 	end
 
 	local best, bestScore = nil, -math.huge
-	-- Keep the current target only if it's still known.
-	if unit.Target and unit.Target.Alive and known and known[unit.Target] then
+	-- Keep the current target if it's still known (regardless of range, so we
+	-- finish chasing it), with a stickiness bonus.
+	if unit.Target and unit.Target.Alive and known[unit.Target] then
 		best = unit.Target
 		bestScore = scoreOf(unit.Target) + W.Hysteresis
 	end
 
-	for _, enemy in knownList do
-		local score = scoreOf(enemy)
-		if score > bestScore then
-			bestScore = score
-			best = enemy
+	-- Acquire NEW targets only from KNOWN enemies near us (grid-limited).
+	SpatialGrid.ForNear(pos, W.AcquireRange, function(enemy)
+		if enemy ~= best and enemy.Alive and known[enemy] then
+			local score = scoreOf(enemy)
+			if score > bestScore then
+				bestScore = score
+				best = enemy
+			end
 		end
-	end
+	end)
 
 	unit.Target = best
 end

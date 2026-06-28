@@ -115,6 +115,7 @@ Config.Targeting = {
 	FocusWeight = 12, -- the leader's called focus target (low, so they don't all swarm one)
 	Hysteresis = 20, -- bonus for keeping current target (stops thrashing)
 	ThreatMemory = 3, -- seconds an attacker is remembered as a threat
+	AcquireRange = 80, -- only acquire NEW targets within this (grid-limited, for perf)
 }
 
 -- What each team is made of (NOT counting the Leader, who is added on top).

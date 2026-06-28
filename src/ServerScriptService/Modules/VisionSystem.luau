@@ -22,6 +22,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Config"))
 local UnitManager = require(script.Parent.UnitManager)
 local NavigationSystem = require(script.Parent.NavigationSystem)
 local BaseSystem = require(script.Parent.BaseSystem)
+local SpatialGrid = require(script.Parent.SpatialGrid)
 
 local VisionSystem = {}
 
@@ -97,58 +98,57 @@ function VisionSystem.Update(now)
 		end
 		local sources = BaseSystem.GetVisionSources(teamKey)
 
-		local function canSee(enemyPos)
-			for _, eye in eyes do
-				local off = enemyPos - eye.pos
+		-- The set of enemies this team can SEE this tick. Each eye only checks
+		-- units in nearby grid cells, not the whole enemy army.
+		local visibleSet = {}
+		local function lookFrom(pos, range, facing, cosHalf)
+			SpatialGrid.ForNear(pos, range, function(other)
+				if other.Team == teamKey or visibleSet[other] or not other.Alive then
+					return
+				end
+				local off = other.Root.Position - pos
 				local dist = off.Magnitude
-				if dist <= eye.range then
-					local inView = dist <= near -- all-round awareness up close
-					if not inView then
-						local flat = Vector3.new(off.X, 0, off.Z)
-						if flat.Magnitude > 0 and eye.facing:Dot(flat.Unit) >= eye.cosHalf then
-							inView = true -- inside the forward cone
-						end
-					end
-					if inView and NavigationSystem.HasLineOfSight(eye.pos, enemyPos) then
-						return true
-					end
+				if dist > range then
+					return
 				end
-			end
-			for _, src in sources do
-				if (enemyPos - src.pos).Magnitude <= src.range
-					and NavigationSystem.HasLineOfSight(src.pos, enemyPos)
-				then
-					return true
+				local inView = dist <= near -- all-round awareness up close
+				if not inView and facing then
+					local flat = Vector3.new(off.X, 0, off.Z)
+					if flat.Magnitude > 0 and facing:Dot(flat.Unit) >= cosHalf then
+						inView = true -- inside the forward cone
+					end
+				elseif not facing then
+					inView = true -- a 360 source (watchtower)
 				end
-			end
-			return false
+				if inView and NavigationSystem.HasLineOfSight(pos, other.Root.Position) then
+					visibleSet[other] = true
+					other.SeenBy[teamKey] = true
+				end
+			end)
 		end
 
-		-- Which enemies can this team see right now?
-		for otherTeam, list in byTeam do
-			if otherTeam ~= teamKey then
-				for _, enemy in list do
-					local enemyPos = enemy.Root.Position
-					local visible = canSee(enemyPos)
+		for _, eye in eyes do
+			lookFrom(eye.pos, eye.range, eye.facing, eye.cosHalf)
+		end
+		for _, src in sources do
+			lookFrom(src.pos, src.range, nil, nil) -- watchtower: 360
+		end
 
-					if visible then
-						local entry = knowledge[enemy]
-						if not entry then
-							entry = {}
-							knowledge[enemy] = entry
-						end
-						entry.pos = enemyPos
-						entry.visible = true
-						entry.lastSeen = now
-						entry.health = enemy.Humanoid.Health -- remembered strength (no peeking after)
-						enemy.SeenBy[teamKey] = true
-					else
-						local entry = knowledge[enemy]
-						if entry then
-							entry.visible = false
-						end
-					end
-				end
+		-- Refresh knowledge for seen enemies; mark the rest as not-currently-seen.
+		for enemy in visibleSet do
+			local entry = knowledge[enemy]
+			if not entry then
+				entry = {}
+				knowledge[enemy] = entry
+			end
+			entry.pos = enemy.Root.Position
+			entry.visible = true
+			entry.lastSeen = now
+			entry.health = enemy.Humanoid.Health -- remembered strength (no peeking after)
+		end
+		for enemy, entry in knowledge do
+			if not visibleSet[enemy] then
+				entry.visible = false
 			end
 		end
 
@@ -160,12 +160,13 @@ function VisionSystem.Update(now)
 			elseif now - entry.lastSeen > Config.Vision.Memory then
 				forget = true
 			elseif not entry.visible then
-				for _, ally in allies do
-					if (ally.Root.Position - entry.pos).Magnitude <= Config.Vision.ForgetRadius then
+				SpatialGrid.ForNear(entry.pos, Config.Vision.ForgetRadius, function(other)
+					if not forget and other.Team == teamKey and other.Alive
+						and (other.Root.Position - entry.pos).Magnitude <= Config.Vision.ForgetRadius
+					then
 						forget = true
-						break
 					end
-				end
+				end)
 			end
 			if forget then
 				knowledge[enemy] = nil

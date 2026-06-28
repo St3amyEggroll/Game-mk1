@@ -21,6 +21,7 @@ local HazardSystem = require(script.Parent.HazardSystem)
 local EffectsSystem = require(script.Parent.EffectsSystem)
 local BaseSystem = require(script.Parent.BaseSystem)
 local AnimationSystem = require(script.Parent.AnimationSystem)
+local SpatialGrid = require(script.Parent.SpatialGrid)
 
 local CombatSystem = {}
 
@@ -52,25 +53,27 @@ end
 
 -- ---- movement --------------------------------------------------------------
 
-local function separation(unit, allies)
+-- Push apart from nearby ALLIES only (so they can still close on enemies),
+-- using the spatial grid instead of scanning the whole army.
+local function separation(unit)
 	local push = Vector3.zero
 	local pos = unit.Root.Position
 	local radius = Config.Command.SeparationRadius
-	for _, ally in allies do
-		if ally ~= unit then
-			local offset = pos - ally.Root.Position
+	SpatialGrid.ForNear(pos, radius, function(other)
+		if other ~= unit and other.Alive and other.Team == unit.Team then
+			local offset = pos - other.Root.Position
 			local dist = offset.Magnitude
 			if dist > 0 and dist < radius then
 				push += offset.Unit * (radius - dist)
 			end
 		end
-	end
+	end)
 	return push
 end
 
-local function moveTo(unit, goal, allies, now)
+local function moveTo(unit, goal, _allies, now)
 	local point = NavigationSystem.NextPoint(unit, goal, now)
-	local steer = separation(unit, allies) + HazardSystem.Repel(unit.Root.Position)
+	local steer = separation(unit) + HazardSystem.Repel(unit.Root.Position)
 	unit.Humanoid:MoveTo(point + steer)
 end
 
@@ -125,16 +128,23 @@ local function swingAt(unit, target, now, state)
 	dealHit(unit, target, now, state)
 end
 
--- Nearest KNOWN enemy to a position (by believed location).
-local function nearestEnemy(state, position)
-	local nearest, nearestDist = nil, math.huge
-	for _, enemy in (state and state.KnownList) or {} do
-		local dist = (believedPos(state, enemy) - position).Magnitude
-		if dist < nearestDist then
-			nearestDist = dist
-			nearest = enemy
-		end
+-- Nearest KNOWN enemy near a position, via the grid (state.Known holds only
+-- enemies, so membership in it is the enemy filter).
+local function nearestEnemy(state, position, radius)
+	local known = state and state.Known
+	if not known then
+		return nil, math.huge
 	end
+	local nearest, nearestDist = nil, math.huge
+	SpatialGrid.ForNear(position, radius or 60, function(other)
+		if other.Alive and known[other] then
+			local dist = (believedPos(state, other) - position).Magnitude
+			if dist < nearestDist then
+				nearestDist = dist
+				nearest = other
+			end
+		end
+	end)
 	return nearest, nearestDist
 end
 

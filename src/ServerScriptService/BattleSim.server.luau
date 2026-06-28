@@ -115,7 +115,76 @@ local CombatSystem = require(Modules.CombatSystem)
 local HazardSystem = require(Modules.HazardSystem)
 local StaminaSystem = require(Modules.StaminaSystem)
 local AnimationSystem = require(Modules.AnimationSystem)
+local SpatialGrid = require(Modules.SpatialGrid)
 local Signals = require(Modules.Signals)
+
+-- ----------------------------------------------------- Live control panel ---
+local controlRemote = ReplicatedStorage:FindFirstChild("ControlPanel")
+if not controlRemote then
+	controlRemote = Instance.new("RemoteEvent")
+	controlRemote.Name = "ControlPanel"
+	controlRemote.Parent = ReplicatedStorage
+end
+
+local control = { paused = false, restart = false }
+
+-- Snapshot the starting composition so army-size scaling stays proportional.
+local baseComposition, baseTotal = {}, 0
+for _, group in Config.Composition do
+	table.insert(baseComposition, { Type = group.Type, Count = group.Count })
+	baseTotal += group.Count
+end
+
+local function currentArmyTotal()
+	local total = 0
+	for _, group in Config.Composition do
+		total += group.Count
+	end
+	return total
+end
+
+local function applyArmyTotal(total)
+	total = math.clamp(math.floor(tonumber(total) or baseTotal), 4, 400)
+	local scale = total / math.max(1, baseTotal)
+	local scaled = {}
+	for _, group in baseComposition do
+		table.insert(scaled, { Type = group.Type, Count = math.max(0, math.round(group.Count * scale)) })
+	end
+	Config.Composition = scaled
+end
+
+local function broadcastState()
+	controlRemote:FireAllClients("state", {
+		paused = control.paused,
+		collisions = Config.UnitsCollide,
+		cones = Config.Vision.ShowCones,
+		army = currentArmyTotal(),
+	})
+end
+
+controlRemote.OnServerEvent:Connect(function(_player, action, value)
+	if action == "pause" then
+		control.paused = not control.paused
+	elseif action == "restart" then
+		control.restart = true
+	elseif action == "army" then
+		applyArmyTotal(value)
+		control.restart = true
+	elseif action == "collisions" then
+		Config.UnitsCollide = value and true or false
+		pcall(function()
+			PhysicsService:CollisionGroupSetCollidable("BattleUnits", "BattleUnits", Config.UnitsCollide)
+		end)
+	elseif action == "cones" then
+		Config.Vision.ShowCones = value and true or false
+	end
+	broadcastState()
+end)
+
+Players.PlayerAdded:Connect(function()
+	task.wait(1)
+	broadcastState()
+end)
 
 -- Survivor count per team, for the HUD scoreboard.
 local function teamCounts()
@@ -178,7 +247,18 @@ local function runOneBattle()
 	Signals.Fire({ kind = "start", counts = lastCounts })
 
 	while true do
+		if control.restart then
+			break
+		end
+		if control.paused then
+			task.wait(0.1)
+			continue
+		end
+
 		local now = os.clock()
+
+		-- Rebuild the spatial grid first; vision/targeting/separation query it.
+		SpatialGrid.Rebuild(UnitManager.Units)
 
 		-- Refresh hazards + vision, update bases (discovery/respawn), then plan + act.
 		HazardSystem.Refresh()
@@ -222,9 +302,14 @@ local function runOneBattle()
 	end
 end
 
--- Loop forever so the sim auto-restarts and you can keep watching.
+-- Loop forever so the sim auto-restarts and you can keep watching. A manual
+-- restart (from the control panel) skips the wait.
 while true do
 	runOneBattle()
-	print(("[BattleSim] Restarting in %d seconds..."):format(Config.RestartDelay))
-	task.wait(Config.RestartDelay)
+	local manual = control.restart
+	control.restart = false
+	if not manual then
+		print(("[BattleSim] Restarting in %d seconds..."):format(Config.RestartDelay))
+		task.wait(Config.RestartDelay)
+	end
 end
