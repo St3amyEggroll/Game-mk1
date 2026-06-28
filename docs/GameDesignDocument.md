@@ -4,7 +4,11 @@ A living doc. Updated as the project grows.
 
 ## Vision
 
-A modern-military **mass battle simulator** in Roblox. Lots of small AI humanoid
+A modern-military **mass battle simulator** in Roblox. Combat is gun-based
+(ranged): units fight from firing lines, not melee piles. Roster: Rifleman
+(line), Gunner (long-range support), Assault (fast short-range push), Scout
+(recon), plus a non-combat Worker economy. No melee/cavalry.
+ Lots of small AI humanoid
 soldiers — mixed **melee + ranged** — fight autonomously until one side is wiped
 out. **Last team standing wins.** Built to scale toward **100v100+**, with player
 "commander" control added later.

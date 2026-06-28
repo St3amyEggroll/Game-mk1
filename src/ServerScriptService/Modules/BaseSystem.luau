@@ -41,7 +41,7 @@ local function buildCycle()
 		end
 	end
 	if #respawnCycle == 0 then
-		respawnCycle = { "Melee" }
+		respawnCycle = { "Rifleman" }
 	end
 end
 

@@ -28,67 +28,60 @@ Config.Teams = {
 	},
 }
 
--- Stat block for each kind of soldier. RigName must match a Model you put
--- inside ReplicatedStorage/Assets. Ranged is defined now but not used until
--- Milestone 3 — you only need to build the MeleeUnit rig for now.
--- Every RigName falls back to MeleeUnit if you haven't built that rig yet, so
--- new unit types still spawn (they'll just look like infantry until you make a
--- distinct rig). WalkSpeed is the BASE speed; sprinting multiplies it (Stamina).
--- SightRange is used by the fog-of-war system (Phase 2).
+-- Stat block for each kind of soldier. MODERN MILITARY: nearly everyone carries
+-- a gun (Ranged = true), so they fight from a distance in firing lines instead
+-- of piling into melee. RigName falls back to MeleeUnit if you haven't built a
+-- distinct rig. WalkSpeed is the BASE speed; SightRange + FOV drive fog of war.
 Config.UnitTypes = {
-	Melee = {
-		RigName = "MeleeUnit",
+	Rifleman = {
+		RigName = "RiflemanUnit",
 		MaxHealth = 100,
-		WalkSpeed = 16,
-		AttackRange = 6, -- has to get right up close
-		AttackDamage = 18,
-		AttackCooldown = 1.0,
-		Priority = 1,
-		SightRange = 40,
-	},
-	Spearman = {
-		RigName = "SpearUnit",
-		MaxHealth = 110,
-		WalkSpeed = 15,
-		AttackRange = 7, -- longer reach than a sword
-		AttackDamage = 16,
-		AttackCooldown = 1.1,
-		Priority = 1,
-		SightRange = 40,
-		BonusVs = { Cavalry = 2.5 }, -- anti-cavalry: shreds horses
-	},
-	Archer = {
-		RigName = "ArcherUnit",
-		MaxHealth = 60,
 		WalkSpeed = 14,
-		AttackRange = 55, -- shoots from afar
-		MinRange = 14, -- backs away (kites) if enemies get closer than this
-		AttackDamage = 14,
-		AttackCooldown = 1.4,
-		Priority = 1.6, -- squishy and dangerous: worth focusing down
-		SightRange = 70, -- sees farther than most (Phase 2)
+		AttackRange = 52, -- standard rifle reach
+		MinRange = 8, -- back off if enemies get inside this
+		AttackDamage = 11,
+		AttackCooldown = 0.55, -- rapid fire
+		Priority = 1,
+		SightRange = 60,
 		Ranged = true,
 	},
-	Cavalry = {
-		RigName = "CavalryUnit",
-		MaxHealth = 120,
-		WalkSpeed = 26, -- sprint (x1.6) outruns fleeing infantry
-		AttackRange = 8, -- lance reach
-		AttackDamage = 35, -- big charge impact
-		AttackCooldown = 0.8,
+	Gunner = {
+		RigName = "GunnerUnit",
+		MaxHealth = 95,
+		WalkSpeed = 10, -- heavy, slow
+		AttackRange = 82, -- long-range support (MG / marksman)
+		MinRange = 16,
+		AttackDamage = 16,
+		AttackCooldown = 0.7,
+		Priority = 1.5, -- dangerous: worth focusing down
+		SightRange = 88,
+		FOV = 140,
+		Ranged = true,
+	},
+	Assault = {
+		RigName = "AssaultUnit",
+		MaxHealth = 115,
+		WalkSpeed = 18, -- fast, pushes the line
+		AttackRange = 26, -- short-range (SMG / shotgun)
+		MinRange = 0,
+		AttackDamage = 15,
+		AttackCooldown = 0.32, -- very rapid
 		Priority = 1,
-		SightRange = 45,
+		SightRange = 50,
+		Ranged = true,
 	},
 	Scout = {
 		RigName = "ScoutUnit",
-		MaxHealth = 55,
-		WalkSpeed = 22, -- fast and mobile
-		AttackRange = 6,
-		AttackDamage = 10,
-		AttackCooldown = 1.0,
+		MaxHealth = 60,
+		WalkSpeed = 22, -- fast recon
+		AttackRange = 36,
+		MinRange = 0,
+		AttackDamage = 8,
+		AttackCooldown = 0.6,
 		Priority = 1,
-		SightRange = 110, -- the longest eyes on the field
+		SightRange = 120, -- the longest eyes on the field
 		FOV = 240, -- wide-eyed observer (others default to 160)
+		Ranged = true,
 	},
 	Worker = {
 		RigName = "WorkerUnit",
@@ -121,10 +114,9 @@ Config.Targeting = {
 -- What each team is made of (NOT counting the Leader, who is added on top).
 -- Add more entries / bump Count to grow the army.
 Config.Composition = {
-	{ Type = "Melee", Count = 8 },
-	{ Type = "Spearman", Count = 5 },
-	{ Type = "Archer", Count = 5 },
-	{ Type = "Cavalry", Count = 4 },
+	{ Type = "Rifleman", Count = 14 },
+	{ Type = "Gunner", Count = 4 },
+	{ Type = "Assault", Count = 4 },
 	{ Type = "Scout", Count = 3 },
 }
 
@@ -251,13 +243,12 @@ Config.HealthBars = {
 
 -- Icon shown above each unit so you can read the battle from above.
 Config.Icons = {
-	Melee = "⚔️",
-	Spearman = "🔱",
-	Archer = "🏹",
-	Cavalry = "🐎",
+	Rifleman = "🔫",
+	Gunner = "🎯",
+	Assault = "💥",
 	Scout = "🔭",
 	Worker = "⛏️",
-	Leader = "👑",
+	Leader = "⭐",
 }
 
 -- Workers: non-combat units that hang around the base and FLEE from enemies.

@@ -60,16 +60,23 @@ function AnimationSystem.Update(unit)
 	if not anim then
 		return
 	end
-	local moving = unit.Humanoid.MoveDirection.Magnitude > 0.1
-	if moving and anim.state ~= "walk" then
-		anim.state = "walk"
+	local humanoid = unit.Humanoid
+	local moving = humanoid.MoveDirection.Magnitude > 0.1
+	if moving then
+		if anim.state ~= "walk" then
+			anim.state = "walk"
+			if anim.walk then
+				anim.walk:Play(0.15)
+			end
+			if anim.idle then
+				anim.idle:Stop(0.15)
+			end
+		end
+		-- Scale the cycle to the unit's speed, so faster units read as running.
 		if anim.walk then
-			anim.walk:Play(0.15)
+			anim.walk:AdjustSpeed(math.clamp(humanoid.WalkSpeed / 14, 0.7, 2.4))
 		end
-		if anim.idle then
-			anim.idle:Stop(0.15)
-		end
-	elseif not moving and anim.state ~= "idle" then
+	elseif anim.state ~= "idle" then
 		anim.state = "idle"
 		if anim.idle then
 			anim.idle:Play(0.15)

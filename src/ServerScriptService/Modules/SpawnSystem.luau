@@ -177,7 +177,7 @@ end
 local function buildRoster()
 	local roster = {}
 	if Config.Leader.Enabled then
-		table.insert(roster, { Type = "Melee", IsLeader = true, Role = "Leader" })
+		table.insert(roster, { Type = "Rifleman", IsLeader = true, Role = "Leader" })
 	end
 
 	local soldiers = {}
@@ -193,15 +193,10 @@ local function buildRoster()
 	local flankers = Config.Command.FlankSquadSize
 	local lineCount = 0
 	for _, soldier in soldiers do
-		local t = soldier.Type
-		if t == "Cavalry" then
-			soldier.Role = "Cavalry"
-		elseif t == "Archer" then
-			soldier.Role = "Archer"
-		elseif t == "Scout" then
+		if soldier.Type == "Scout" then
 			soldier.Role = "Scout"
 		else
-			-- Melee / Spearman = line infantry, eligible for guard/flank.
+			-- Rifleman / Gunner / Assault = line, eligible for guard/flank.
 			lineCount += 1
 			if lineCount <= guards then
 				soldier.Role = "Guard"
@@ -216,11 +211,7 @@ local function buildRoster()
 end
 
 local function roleForType(unitType)
-	if unitType == "Cavalry" then
-		return "Cavalry"
-	elseif unitType == "Archer" then
-		return "Archer"
-	elseif unitType == "Scout" then
+	if unitType == "Scout" then
 		return "Scout"
 	elseif unitType == "Worker" then
 		return "Worker"
@@ -249,9 +240,6 @@ local function buildUnit(teamKey, teamData, slot, pivot, offset, assets, unitsFo
 	local model = template:Clone()
 	model:PivotTo(pivot)
 	dressModel(model, teamData.Color)
-	if slot.Type == "Cavalry" then
-		attachHorse(model)
-	end
 
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	local maxHealth = stats.MaxHealth

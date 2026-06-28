@@ -1,17 +1,17 @@
 --[[
-	CombatSystem  (fog-aware)
-	-------------------------
-	One unit's "turn", driven by its role + the team's stance/order, and now by
-	what the team can SEE:
+	CombatSystem  (modern military -- guns)
+	---------------------------------------
+	Almost everyone carries a gun, so combat is RANGED: units hold at their
+	weapon range and shoot (tracers), back off if an enemy gets inside MinRange,
+	and only close the distance when out of range. This keeps them in spaced
+	firing lines instead of piling into a melee scrum.
 
-	  • Units move toward a target's BELIEVED position (real if visible, else the
-	    last-known spot — so they investigate where an enemy was last seen).
-	  • Units only STRIKE a target they can actually see and reach.
-	  • Striking an enemy whose team can't see you lands an AMBUSH bonus.
+	Still fog-aware (act on believed positions, only shoot what you can see, get
+	an ambush bonus from outside the enemy's vision) and grid-accelerated.
 
-	Roles: Leader (directs/self-defends), Guard (screens/rings the leader),
-	Flank (peels once engaged), Archer (kites + shoots with LOS), Cavalry
-	(charge/peel hit-and-run), Main/Scout (advance then engage).
+	Roles: Leader (directs from the back, fires in self-defense), Guard (screens
+	the leader), Flank (peels wide once engaged), Scout (recons then fights),
+	Main (advance + engage), Worker (non-combat).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -29,6 +29,11 @@ function CombatSystem.RefreshObstacleFilter()
 	NavigationSystem.Refresh()
 end
 
+local function teamColor(unit)
+	local team = Config.Teams[unit.Team]
+	return team and team.Color
+end
+
 -- ---- fog-of-war helpers ----------------------------------------------------
 
 local function isVisible(state, target)
@@ -36,7 +41,6 @@ local function isVisible(state, target)
 	return entry ~= nil and entry.visible
 end
 
--- Where this unit BELIEVES the target is: real spot if seen, else last-known.
 local function believedPos(state, target)
 	if isVisible(state, target) then
 		return target.Root.Position
@@ -45,16 +49,9 @@ local function believedPos(state, target)
 	return (entry and entry.pos) or target.Root.Position
 end
 
--- Can we actually hit it? Must be visible and within reach.
-local function canStrike(unit, target, state)
-	return isVisible(state, target)
-		and (target.Root.Position - unit.Root.Position).Magnitude <= unit.Stats.AttackRange
-end
-
 -- ---- movement --------------------------------------------------------------
 
--- Push apart from nearby ALLIES only (so they can still close on enemies),
--- using the spatial grid instead of scanning the whole army.
+-- Push apart from nearby ALLIES (grid-queried) so they hold a spaced line.
 local function separation(unit)
 	local push = Vector3.zero
 	local pos = unit.Root.Position
@@ -71,10 +68,9 @@ local function separation(unit)
 	return push
 end
 
-local function moveTo(unit, goal, _allies, now)
+local function moveTo(unit, goal, now)
 	local point = NavigationSystem.NextPoint(unit, goal, now)
-	local steer = separation(unit) + HazardSystem.Repel(unit.Root.Position)
-	unit.Humanoid:MoveTo(point + steer)
+	unit.Humanoid:MoveTo(point + separation(unit) + HazardSystem.Repel(unit.Root.Position))
 end
 
 local function faceToward(unit, targetPos)
@@ -85,7 +81,7 @@ local function faceToward(unit, targetPos)
 	end
 end
 
--- ---- attacks ---------------------------------------------------------------
+-- ---- firing ----------------------------------------------------------------
 
 local function attackDamage(unit, state, target)
 	local damage = unit.Stats.AttackDamage
@@ -97,7 +93,6 @@ local function attackDamage(unit, state, target)
 	elseif Config.Leader.Enabled and not leader then
 		damage *= Config.Command.LeaderlessDamagePenalty
 	end
-	-- Counter bonus (spearmen vs cavalry).
 	local bonus = unit.Stats.BonusVs
 	if bonus and target and bonus[target.Type] then
 		damage *= bonus[target.Type]
@@ -109,8 +104,8 @@ local function attackDamage(unit, state, target)
 	return damage
 end
 
--- Land a hit if the cooldown is ready. Returns true if it fired.
-local function dealHit(unit, target, now, state)
+-- Fire if the cooldown is ready. Returns true if a shot went off.
+local function fireAt(unit, target, now, state)
 	if now - unit.LastAttack < unit.Stats.AttackCooldown then
 		return false
 	end
@@ -119,24 +114,56 @@ local function dealHit(unit, target, now, state)
 	target.AttackedBy = unit
 	target.AttackedAt = now
 	AnimationSystem.PlayAttack(unit)
+	EffectsSystem.Tracer(
+		unit.Root.Position + Vector3.new(0, 1.5, 0),
+		target.Root.Position + Vector3.new(0, 1.5, 0),
+		teamColor(unit)
+	)
 	return true
 end
 
-local function swingAt(unit, target, now, state)
-	faceToward(unit, target.Root.Position)
-	unit.Humanoid:Move(Vector3.zero)
-	dealHit(unit, target, now, state)
+-- Engage a target with a gun: shoot at range, back off if too close, close in
+-- if out of range, and move to the last-known spot if we've lost sight.
+local function engage(unit, target, now, state)
+	if not target or not target.Alive then
+		return false
+	end
+	if not isVisible(state, target) then
+		moveTo(unit, believedPos(state, target), now)
+		return true
+	end
+
+	local stats = unit.Stats
+	local myPos = unit.Root.Position
+	local targetPos = target.Root.Position
+	local dist = (targetPos - myPos).Magnitude
+	local minRange = stats.MinRange or 0
+
+	if dist < minRange then
+		-- Too close: back away while keeping it in our sights.
+		faceToward(unit, targetPos)
+		local away = myPos - targetPos
+		away = Vector3.new(away.X, 0, away.Z)
+		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
+		moveTo(unit, myPos + away * 16, now)
+	elseif dist <= stats.AttackRange and NavigationSystem.HasLineOfSight(myPos, targetPos) then
+		unit.Humanoid:Move(Vector3.zero)
+		faceToward(unit, targetPos)
+		fireAt(unit, target, now, state)
+	else
+		moveTo(unit, targetPos, now)
+	end
+	return true
 end
 
--- Nearest KNOWN enemy near a position, via the grid (state.Known holds only
--- enemies, so membership in it is the enemy filter).
+-- Nearest KNOWN enemy near a position (state.Known holds only enemies).
 local function nearestEnemy(state, position, radius)
 	local known = state and state.Known
 	if not known then
 		return nil, math.huge
 	end
 	local nearest, nearestDist = nil, math.huge
-	SpatialGrid.ForNear(position, radius or 60, function(other)
+	SpatialGrid.ForNear(position, radius or 70, function(other)
 		if other.Alive and known[other] then
 			local dist = (believedPos(state, other) - position).Magnitude
 			if dist < nearestDist then
@@ -148,82 +175,66 @@ local function nearestEnemy(state, position, radius)
 	return nearest, nearestDist
 end
 
--- Strike if we can see & reach the target, otherwise move to its believed spot.
-local function fightTarget(unit, target, now, state, allies)
-	if not target or not target.Alive then
-		return
-	end
-	if canStrike(unit, target, state) then
-		swingAt(unit, target, now, state)
-	else
-		moveTo(unit, believedPos(state, target), allies, now)
-	end
-end
-
--- No enemy unit to fight: march on the discovered enemy base and tear it down.
-local function assault(unit, state, allies, now)
+-- No enemy in view: advance on the discovered enemy base and shoot it down.
+local function assault(unit, state, now)
 	local base = state and state.AssaultBase
 	if not base or not base.Alive then
 		if state and state.EnemyCenter then
-			moveTo(unit, state.EnemyCenter, allies, now)
+			moveTo(unit, state.EnemyCenter, now)
 		end
 		return
 	end
 	local pos = unit.Root.Position
 	local flat = Vector3.new(base.Position.X - pos.X, 0, base.Position.Z - pos.Z)
-	if flat.Magnitude <= unit.Stats.AttackRange + 9 then
+	if flat.Magnitude <= unit.Stats.AttackRange then
 		unit.Humanoid:Move(Vector3.zero)
 		faceToward(unit, base.Position)
 		if now - unit.LastAttack >= unit.Stats.AttackCooldown then
 			unit.LastAttack = now
 			BaseSystem.Damage(base, unit.Stats.AttackDamage)
 			AnimationSystem.PlayAttack(unit)
+			EffectsSystem.Tracer(pos + Vector3.new(0, 1.5, 0), base.Position + Vector3.new(0, 2, 0), teamColor(unit))
 		end
 	else
-		moveTo(unit, base.Position, allies, now)
+		moveTo(unit, base.Position, now)
 	end
-end
-
--- Worker: non-combat. Mills around the base. (No fleeing -- if raiders reach
--- the workers they just get cut down, which is the economic hit.)
-local function workerAct(unit, now, state, allies)
-	local basePos = (state and state.OwnBasePos) or unit.Root.Position
-	if not unit.WorkTarget or (unit.WorkTarget - unit.Root.Position).Magnitude < 6 then
-		local angle = math.random() * math.pi * 2
-		local r = math.random() * Config.Workers.WanderRadius
-		unit.WorkTarget = basePos + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
-	end
-	moveTo(unit, unit.WorkTarget, allies, now)
 end
 
 -- ---- per-role behavior -----------------------------------------------------
 
-local function leaderAct(unit, now, state, allies)
+local function leaderAct(unit, now, state)
 	if state and state.AllyCenter and state.EnemyCenter then
 		local back = state.AllyCenter - state.EnemyCenter
 		back = back.Magnitude > 0.01 and back.Unit or Vector3.new(0, 0, 1)
 		local danger = state.LeaderThreatened or state.Stance == "Defensive"
 		local standoff = danger and Config.Leader.RetreatStandoff or Config.Leader.Standoff
-		moveTo(unit, state.AllyCenter + back * standoff, allies, now)
+		moveTo(unit, state.AllyCenter + back * standoff, now)
 	end
-
-	local nearest = nearestEnemy(state, unit.Root.Position)
-	if nearest and canStrike(unit, nearest, state) then
-		swingAt(unit, nearest, now, state)
+	-- Fire on the nearest visible enemy in range.
+	if unit.Target and isVisible(state, unit.Target) then
+		local dist = (unit.Target.Root.Position - unit.Root.Position).Magnitude
+		if dist <= unit.Stats.AttackRange and NavigationSystem.HasLineOfSight(unit.Root.Position, unit.Target.Root.Position) then
+			faceToward(unit, unit.Target.Root.Position)
+			fireAt(unit, unit.Target, now, state)
+		end
 	end
 end
 
-local function guardAct(unit, now, state, allies)
+local function guardAct(unit, now, state)
 	local leader = state and state.Leader
 	if not leader or not leader.Alive then
-		fightTarget(unit, unit.Target, now, state, allies)
+		if unit.Target then
+			engage(unit, unit.Target, now, state)
+		else
+			assault(unit, state, now)
+		end
 		return
 	end
 
 	local leaderPos = leader.Root.Position
-	local threat, threatDist = nearestEnemy(state, leaderPos)
+	local threat, threatDist = nearestEnemy(state, leaderPos, Config.Leader.GuardEngageRange)
 	if threat and threatDist <= Config.Leader.GuardEngageRange then
-		fightTarget(unit, threat, now, state, allies)
+		engage(unit, threat, now, state)
 		return
 	end
 
@@ -231,191 +242,97 @@ local function guardAct(unit, now, state, allies)
 	if ringUp then
 		local count = math.max(1, Config.Leader.GuardSquadSize)
 		local angle = (unit.GuardIndex / count) * math.pi * 2
-		local spot = leaderPos + Vector3.new(math.cos(angle), 0, math.sin(angle)) * Config.Leader.GuardRingRadius
-		moveTo(unit, spot, allies, now)
+		moveTo(unit, leaderPos + Vector3.new(math.cos(angle), 0, math.sin(angle)) * Config.Leader.GuardRingRadius, now)
 	else
 		local toEnemy = (state.EnemyCenter or leaderPos) - leaderPos
 		toEnemy = toEnemy.Magnitude > 0.01 and toEnemy.Unit or Vector3.new(0, 0, 1)
-		moveTo(unit, leaderPos + toEnemy * Config.Leader.GuardScreenDistance + unit.FormationOffset, allies, now)
+		moveTo(unit, leaderPos + toEnemy * Config.Leader.GuardScreenDistance + unit.FormationOffset, now)
 	end
 end
 
-local function flankAct(unit, now, state, allies)
+local function flankAct(unit, now, state)
+	if unit.Target then
+		engage(unit, unit.Target, now, state)
+		return
+	end
 	if state.Order == "Engage" then
-		if unit.Target and canStrike(unit, unit.Target, state) then
-			swingAt(unit, unit.Target, now, state)
-			return
-		end
 		if state.FocusTarget and state.FocusTarget.Alive then
-			moveTo(unit, believedPos(state, state.FocusTarget), allies, now)
+			moveTo(unit, believedPos(state, state.FocusTarget), now)
+		elseif state.FlankPoint then
+			moveTo(unit, state.FlankPoint, now)
 		else
-			assault(unit, state, allies, now)
+			assault(unit, state, now)
 		end
 	else
-		local rally = state.RallyPoint or state.AllyCenter or unit.Root.Position
-		moveTo(unit, rally + unit.FormationOffset, allies, now)
+		moveTo(unit, (state.RallyPoint or state.AllyCenter or unit.Root.Position) + unit.FormationOffset, now)
 	end
 end
 
--- Scout: when the team has no intel, range ahead (fanned out) to find the enemy
--- -- the leader's eyes. Once something is known, fight/assist like the line.
-local function scoutAct(unit, now, state, allies)
+local function scoutAct(unit, now, state)
 	local hasIntel = (state and state.KnownList and #state.KnownList > 0)
 		or (state and state.AssaultBase and state.AssaultBase.Alive)
 	if not hasIntel then
-		-- Sweep the map: roam to random points until we find something. Pick a
-		-- new spot once we reach the current one.
+		-- Roam the map to find the enemy (the leader's eyes).
 		local center = (state and state.ExplorePoint) or unit.Root.Position
 		if not unit.ExploreTarget or (unit.ExploreTarget - unit.Root.Position).Magnitude < 15 then
 			local angle = math.random() * math.pi * 2
-			local dist = 40 + math.random() * Config.Command.ScoutRoamRadius
-			unit.ExploreTarget = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+			local distance = 40 + math.random() * Config.Command.ScoutRoamRadius
+			unit.ExploreTarget = center + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
 		end
 		unit.WantsSprint = true
-		moveTo(unit, unit.ExploreTarget, allies, now)
+		moveTo(unit, unit.ExploreTarget, now)
 		return
 	end
 	if unit.Target then
-		fightTarget(unit, unit.Target, now, state, allies)
+		engage(unit, unit.Target, now, state)
 	else
-		assault(unit, state, allies, now)
+		assault(unit, state, now)
 	end
 end
 
--- Archer: shoot visible targets from afar; kite away if they get too close.
-local function rangedAct(unit, now, state, allies)
-	if state and state.Order == "Advance" then
-		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint or state.AllyCenter
-		moveTo(unit, (rally or unit.Root.Position) + unit.FormationOffset, allies, now)
-		return
+-- Worker: non-combat; mills near the base.
+local function workerAct(unit, now, state)
+	local basePos = (state and state.OwnBasePos) or unit.Root.Position
+	if not unit.WorkTarget or (unit.WorkTarget - unit.Root.Position).Magnitude < 6 then
+		local angle = math.random() * math.pi * 2
+		local r = math.random() * Config.Workers.WanderRadius
+		unit.WorkTarget = basePos + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r)
 	end
-
-	local target = unit.Target
-	if not target or not target.Alive then
-		assault(unit, state, allies, now) -- no one to shoot: help take the base
-		return
-	end
-
-	local myPos = unit.Root.Position
-
-	-- Can't see it: move to where we think it is.
-	if not isVisible(state, target) then
-		moveTo(unit, believedPos(state, target), allies, now)
-		return
-	end
-
-	local targetPos = target.Root.Position
-	local dist = (targetPos - myPos).Magnitude
-	local minRange = unit.Stats.MinRange or 0
-
-	if dist < minRange then
-		unit.WantsSprint = true -- kite away (costs stamina)
-		local away = myPos - targetPos
-		away = Vector3.new(away.X, 0, away.Z)
-		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
-		moveTo(unit, myPos + away * 20, allies, now)
-	elseif dist <= unit.Stats.AttackRange and NavigationSystem.HasLineOfSight(myPos, targetPos) then
-		unit.Humanoid:Move(Vector3.zero)
-		faceToward(unit, targetPos)
-		if dealHit(unit, target, now, state) then
-			local color = Config.Teams[unit.Team] and Config.Teams[unit.Team].Color
-			EffectsSystem.Tracer(myPos + Vector3.new(0, 1.5, 0), targetPos + Vector3.new(0, 1.5, 0), color)
-		end
-	else
-		moveTo(unit, targetPos, allies, now)
-	end
-end
-
--- Cavalry: ride with the army, then charge -> strike -> peel away -> re-charge.
-local function cavalryAct(unit, now, state, allies)
-	if state and state.Order == "Advance" then
-		local goal = state.RallyPoint or state.AllyCenter or unit.Root.Position
-		moveTo(unit, goal + unit.FormationOffset, allies, now)
-		return
-	end
-
-	if unit.CavalryPhase == "Peel" then
-		if now < (unit.PeelUntil or 0) and unit.PeelPoint then
-			moveTo(unit, unit.PeelPoint, allies, now)
-			return
-		end
-		unit.CavalryPhase = "Charge"
-		unit.LastAttack = 0
-	end
-
-	unit.WantsSprint = true -- full gallop
-	local target = unit.Target
-	if not target or not target.Alive then
-		assault(unit, state, allies, now) -- no one to charge: ride at the base
-		return
-	end
-
-	if canStrike(unit, target, state) then
-		swingAt(unit, target, now, state) -- impact
-		unit.CavalryPhase = "Peel"
-		unit.PeelUntil = now + Config.Cavalry.PeelTime
-		local away = unit.Root.Position - target.Root.Position
-		away = Vector3.new(away.X, 0, away.Z)
-		away = away.Magnitude > 0.01 and away.Unit or Vector3.new(0, 0, 1)
-		unit.PeelPoint = unit.Root.Position + away * Config.Cavalry.PeelDistance
-	else
-		moveTo(unit, believedPos(state, target), allies, now)
-	end
+	moveTo(unit, unit.WorkTarget, now)
 end
 
 -- ---- dispatch --------------------------------------------------------------
 
 function CombatSystem.Act(unit, now, state)
-	local allies = (state and state.Allies) or {}
-
 	if unit.IsLeader then
-		leaderAct(unit, now, state, allies)
+		leaderAct(unit, now, state)
 		return
 	end
-
-	if unit.Role == "Cavalry" then
-		cavalryAct(unit, now, state, allies)
-		return
-	end
-
 	if unit.Role == "Worker" then
-		workerAct(unit, now, state, allies)
+		workerAct(unit, now, state)
 		return
 	end
-
-	if unit.Role == "Archer" then
-		rangedAct(unit, now, state, allies)
-		return
-	end
-
-	if unit.Role == "Guard" then
-		guardAct(unit, now, state, allies)
-		return
-	end
-
-	if unit.Role == "Flank" then
-		flankAct(unit, now, state, allies)
-		return
-	end
-
 	if unit.Role == "Scout" then
-		scoutAct(unit, now, state, allies)
+		scoutAct(unit, now, state)
+		return
+	end
+	if unit.Role == "Guard" then
+		guardAct(unit, now, state)
+		return
+	end
+	if unit.Role == "Flank" then
+		flankAct(unit, now, state)
 		return
 	end
 
-	-- Main. Advance to the rally (or a defensive hold line), then engage.
-	if state and state.Order == "Advance" then
-		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint
-		if rally then
-			moveTo(unit, rally + unit.FormationOffset, allies, now)
-			return
-		end
-	end
-
+	-- Main line. Shoot if we have a target; otherwise advance, or assault the base.
 	if unit.Target then
-		fightTarget(unit, unit.Target, now, state, allies)
+		engage(unit, unit.Target, now, state)
+	elseif state and state.Order == "Advance" then
+		local rally = (state.Stance == "Defensive" and state.HoldPoint) or state.RallyPoint or state.AllyCenter
+		moveTo(unit, (rally or unit.Root.Position) + unit.FormationOffset, now)
 	else
-		assault(unit, state, allies, now)
+		assault(unit, state, now)
 	end
 end
 
